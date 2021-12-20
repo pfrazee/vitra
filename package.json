@@ -1,0 +1,34 @@
+{
+  "name": "@ito/ito",
+  "version": "0.0.1",
+  "description": "Blockchain-free smart contracts through secure ledgers.",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "test": "ava -s test/*.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^16.6.2",
+    "ava": "^3.15.0",
+    "ts-node": "^10.2.1",
+    "typescript": "^4.3.5"
+  },
+  "ava": {
+    "extensions": {
+      "ts": "module"
+    },
+    "nonSemVerExperiments": {
+      "configurableModuleFormat": true
+    },
+    "nodeArguments": [
+      "--loader=ts-node/esm"
+    ]
+  },
+  "author": "Paul Frazee <pfrazee@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "confine-sandbox": "^0.1.0",
+    "hyperbee": "^1.7.0",
+    "hypercore": "^10.0.0-alpha.19"
+  }
+}
