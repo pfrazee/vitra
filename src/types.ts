@@ -2,6 +2,35 @@ export const CONTRACT_SOURCE_KEY = '/.sys/contract/source'
 
 export type Key = string|Buffer
 
+export interface ItoContractCode {
+  source: string
+}
+
+export interface ItoContractCreateOpts {
+  code: ItoContractCode
+}
+
+export interface ItoLogInclusionProof {
+  seq: number
+  hash: Buffer
+  signature: Buffer
+}
+
+export interface ItoAck {
+  success: boolean|undefined
+  error: Error|undefined
+  oplog: string
+  seq: number
+  ts: number
+  metadata: any
+}
+
+export interface ItoIndexBatchEntry {
+  action: string
+  key: string
+  value?: any
+}
+
 export interface ItoOpLogEntry {
   seq: number
   value: any
@@ -16,6 +45,11 @@ export interface ItoIndexLogListEntry {
   seq: number
   key: string
   value: any
+}
+
+export interface BaseApiCallRes {
+  response: any
+  ops: any[]
 }
 
 export function keyToBuf (key: Key) {

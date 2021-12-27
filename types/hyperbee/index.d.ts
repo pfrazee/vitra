@@ -1,6 +1,12 @@
 declare module 'hyperbee' {
   type Hypercore = import('hypercore')
 
+  declare class Batch {
+    async put (key: string, value: any)
+    async del (key: string)
+    async flush ()
+  }
+
   export default class HyperBee {
     constructor(feed: any, opts?: {});
     keyEncoding: any;
@@ -18,7 +24,7 @@ declare module 'hyperbee' {
     createDiffStream(right: any, opts?: any): any;
     get(key: any, opts?: any): Promise<any>;
     put(key: any, value: any, opts?: any): Promise<void>;
-    batch(opts: any): Batch;
+    batch(opts?: any): Batch;
     del(key: any, opts?: any): Promise<void>;
     checkout(version: any): HyperBee;
     snapshot(): HyperBee;

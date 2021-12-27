@@ -1,10 +1,12 @@
+import { ItoContract } from './contract.js'
 import { ItoOperation } from './op.js'
 
 export class ItoTransaction {
-  public ops: ItoOperation[] = []
+  constructor (public contract: ItoContract, public response: any, public ops: ItoOperation[]) {
+  }
 
-  async proveInclusion () {
-    throw new Error('TODO')
+  async verifyInclusion () {
+    await Promise.all(this.ops.map(op => op.verifyInclusion()))
   }
 
   async isApplied () {

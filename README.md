@@ -9,18 +9,19 @@ A blockchain-free smart contract platform using secure ledgers. [Read the white 
 - [x] Create a d.ts for confine
   - [x] Update the readme too
   - [x] Publish
-- [ ] Create ito-confine-runtime
-  - [ ] Process-local globals
-  - [ ] Restricted mode
+- [x] Create ito-confine-runtime
+  - [x] Process-local globals
+  - [x] Restricted mode
+  - [x] Add configure() to confine
 - [x] Create a d.ts for Hypercore & Hyperbee
 - [ ] Implement initialization
 - [ ] Implement transactions
-  - [ ] API calls
+  - [x] API calls
   - [ ] Op execution
 - [ ] Implement verification
   - [ ] Append-only constraint violation detection
   - [ ] Inclusion proofs for
-    - [ ] Ops
+    - [x] Ops
     - [ ] Transactions
     - [ ] Transaction results
   - [ ] Log replay
@@ -29,3 +30,9 @@ A blockchain-free smart contract platform using secure ledgers. [Read the white 
   - [ ] Participant changes
   - [ ] Contract changes
 - [ ] Create CLI
+
+## Future improvements
+
+### Native-code contract runtime
+
+Currenly ITO is using [https://github.com/laverdet/isolated-vm] to execute contracts (via the [Confine Sandbox](https://github.com/confine-sandbox) framework). This could be optimized by replacing the confine guest process with a C++ program that embeds V8, which would reduce the amount of marshalling between V8 contexts.
