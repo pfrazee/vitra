@@ -1,4 +1,6 @@
 export const CONTRACT_SOURCE_KEY = '/.sys/contract/source'
+export const PARTICIPANT_KEY_PREFIX = '/.sys/inputs/'
+export const ACK_KEY_PREFIX = '/.sys/acks/'
 
 export type Key = string|Buffer
 
@@ -19,7 +21,7 @@ export interface ItoLogInclusionProof {
 export interface ItoAck {
   success: boolean|undefined
   error: Error|undefined
-  oplog: string
+  origin: string
   seq: number
   ts: number
   metadata: any

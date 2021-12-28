@@ -74,7 +74,7 @@ export class ItoOpLog extends ItoLog {
     throw new Error('TODO')
   }
 
-  async __dangerousAppend (values: any[]): Promise<ItoOperation[]> {
+  async dangerousAppend (values: any[]): Promise<ItoOperation[]> {
     const ops = []
     const baseSeq = await this.core.append(values)
     for (let i = 0; i < values.length; i++) {
@@ -108,7 +108,7 @@ export class ItoIndexLog extends ItoLog {
     throw new Error('TODO')
   }
 
-  async __dangerousBatch (batch: ItoIndexBatchEntry[]) {
+  async dangerousBatch (batch: ItoIndexBatchEntry[]) {
     if (!this.bee) throw new Error('Hyperbee not initialized')
     const b = this.bee.batch()
     for (const entry of batch) {
@@ -119,14 +119,6 @@ export class ItoIndexLog extends ItoLog {
       }
     }
     await b.flush()
-  }
-
-  async __dangerousPut (key: string, value: any): Promise<void> {
-    throw new Error('TODO')
-  }
-
-  async __dangerousDel (key: string): Promise<void> {
-    throw new Error('TODO')
   }
 }
 
