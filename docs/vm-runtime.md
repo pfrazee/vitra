@@ -12,25 +12,31 @@ In "restricted mode," all host calls are disabled except for reads from the `Con
 
 Each contract exports the following functions:
 
-- `async apply(tx, op, ack)` Required. Translates operations into changes to the index. Must not have any side-effects. Called only on the executor instance or during verification flows.
-- `process(op)` Optional. Returns metadata to be attached to operation `ack` messages. Cannot be async. Called only on the executor instance.
+- `apply` Required. Translates operations into changes to the index. Must not have any side-effects. Called only on the executor instance or during verification flows.
+- `process` Optional. Returns metadata to be attached to operation `ack` messages. Cannot be async. Called only on the executor instance.
 
-Apply is expected to conform to the following signature:
+Apply is expected to conform to one of the following signature:
 
 ```typescript
-apply (tx: ApplyTransactor, op: any, ack: Ack): Promise<void>
+// signature one
+(tx: ApplyTransactor, op: any, ack: Ack) => Promise<void>
+
+// signature two
+Record<string, (tx: ApplyTransactor, op: any, ack: Ack) => Promise<void>>
 ```
+
+In the latter case, the `.op` attribute of the operation is used to lookup the correct apply function.
 
 Process is expected to conform to the following signature:
 
 ```typescript
-process (op: any): any|Promise<any>
+(op: any) => any|Promise<any>
 ```
 
 Every other export is expected to conform to the following signature:
 
 ```typescript
-functionName (params: any[], emit: (op: any) => void): any|Promise<any>
+(params: any, emit: (op: any) => void) => any|Promise<any>
 ```
 
 The passed APIs are defined hereafter.

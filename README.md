@@ -31,17 +31,7 @@ A blockchain-free smart contract runtime using secure ledgers. [Read the white p
   - [ ] Contract changes
 - [ ] Create CLI
 
-## High-level description
-
-Contracts are instantiated on any device that's interested in accessing it. This means there's always a "local instance" of the contract running. Contracts export an API for external interaction.
-
-> ℹ️ It is possible to examine the datacores of contracts without instantiating the contract, but this is not the default behavior.
-
-In addition to the contract's output core, each instance may or may not have an input core. All state-mutations are appended as operations to the local instance's input core. A required function, `apply()`, is then called to handle each input cores' operations and update the output core's state. 
-
-The contract instance that owns the output core is known as the "executor." Contract instances that own input cores are known as "participants." 
-
-It's possible for contracts to call other contracts' APIs if they know the output core's public key. These calls only route to the local instances; any kind of messaging over the network is not allowed. The host environment for contracts may choose how to expose the contracts to outside systems. A simple example is an HTTP gateway which binds a contract to some domain and translates JSON-RPC calls to the contract.
+## Overview
 
 An example contract:
 

@@ -8,12 +8,20 @@
 - A contract "instance" is created locally when the contract is accessed
 - Each contract instance may have an input log
 
+Contracts are instantiated on any device that's interested in accessing it. This means there's always a "local instance" of the contract running. Contracts export an API for external interaction.
+
+> ℹ️ It is possible to examine the datacores of contracts without instantiating the contract, but this is not the default behavior.
+
+In addition to the contract's output core, each instance may or may not have an input core. All state-mutations are appended as operations to the local instance's input core. A required function, `apply()`, is then called to handle each input cores' operations and update the output core's state. 
+
+The contract instance that owns the output core is known as the "executor." Contract instances that own input cores are known as "participants." 
+
 ## Glossary
 
 |Name|Description|
 |-|-|
 |Contract|A program executed using the ITO framework. This term may refer to only the code or to the code and all the state and participants.|
-|Contract Code|The source code defining the contract.|
+|Contract code|The source code defining the contract.|
 |Log|An append-only listing of messages. Sometimes called a Hypercore or "core" due to the technology ITO is implemented upon.|
 |Input log / oplog|A log which produces operations to be executed by the contract.|
 |Output log / index|The log which represents the current state of the contract which are the results of processed operations.|
@@ -22,6 +30,11 @@
 |Monitor|Any party who chooses to validate the contract's execution.|
 |Operation|Any message published on an oplog. Will be processed by the executor.|
 |Transaction|A collection of operations and resulting changes to the index which result from a call to the contract.|
+|Full verification|Conduct a full audit of the contract's execution.|
+|Transaction verification|Audit the execution of an individual transaction.|
+|Proof|An independently-verifiable assertion of some contract state.|
+|Inclusion proof|A proof that some state (e.g. an operation) was processed by the contract.|
+|Fraud proof|A proof that the executor or a participant in a contract has violated some invariant.|
 
 ## Index layout (output log)
 
@@ -30,7 +43,7 @@ The output logs has a set of fixed entries:
 |Key|Usage|
 |-|-|
 |`.sys/contract/source`|The source code of the contract|
-|`.sys/inputs/{pubkey-base32}`|Declarations of input logss|
+|`.sys/inputs/{pubkey-base16}`|Declarations of input logs|
 |`.sys/acks/{monotonic-id}`|Acknowledgements of processed ops|
 
 Entries under `.sys/acks/` can not be modified by the contract.
@@ -89,6 +102,8 @@ The executor host watches all active input logs for new entries and enters the f
 
 > ℹ️ A "transaction" is an API call on the contract, including reads. Every transaction returns an inclusion proof called a "transaction proof" or "tx proof." See the `ContractTransaction` API for information about what each tx proof includes.
 
+The transaction flow is divided into "creation" and "receiving" as time may pass between the initial op-generating call and result processing by the executor.
+
 **Creating the transaction**
 
 - Sync the index head from the network.
@@ -116,7 +131,7 @@ The executor host watches all active input logs for new entries and enters the f
     - `mutations`
     - `indexProof`
 
-### Verification flow (monitor)
+### Full verification flow (monitor)
 
 > ℹ️ Verification occurs by iterating the index's log and comparing published tx-results against generated tx-results. All transactions are preceded by an ack entry, so the majority of the flow is looking for acks at expected places, comparing all updates that result from the message indicated by the ack, and then skipping forward.
 
@@ -158,3 +173,7 @@ The monitor host verifies a contract using the following flow:
   - Increment `idxLogSeq` by `tx.length + 1`.
   - If `newContractSource` is not `null`:
     - Replace the active VM with `newContractSource`
+
+### Transaction verification flow (monitor)
+
+TODO
