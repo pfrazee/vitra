@@ -36,6 +36,7 @@
     "hypercore": "^10.0.0-alpha.19",
     "ito-confine-runtime": "^0.1.0",
     "pump": "^3.0.0",
+    "random-access-memory": "^4.0.0",
     "streamx": "^2.12.0"
   }
 }

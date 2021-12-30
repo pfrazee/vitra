@@ -31,6 +31,11 @@ A blockchain-free smart contract runtime using secure ledgers. [Read the white p
   - [ ] Contract changes
 - [ ] Create CLI
 
+## Issues
+
+- [ ] We might need a secondary index to lookup `[oplog, seq]` -> `ack`
+- [ ] We might also need an index to record last-processed seqs of oplogs
+
 ## Overview
 
 An example contract:
@@ -49,23 +54,12 @@ export function put ({key, value}, emit) {
   emit({op: 'PUT', key, value})
 }
 
-export function apply (tx, op, ack) {
-  if (op.op === 'PUT') {
+export const apply = {
+  PUT (tx, op, ack) {
     assert(typeof op.key === 'string' && key.length > 0)
     tx.put(op.key, op.value)
   }
 }
-
-/**
- * alternatively:
- * 
- * export const apply = {
- *   PUT (tx, op, ack) {
- *     assert(typeof op.key === 'string' && key.length > 0)
- *     tx.put(op.key, op.value)
- *   }
- * }
- */
 ```
 
 ## Future improvements

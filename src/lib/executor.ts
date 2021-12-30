@@ -1,4 +1,6 @@
 // @ts-ignore no types available -prf
+import assert from 'assert'
+// @ts-ignore no types available -prf
 import { AggregateError } from 'core-js-pure/actual/aggregate-error.js'
 import {
   ItoAck,
@@ -77,15 +79,15 @@ export class ItoContractExecutor {
   private async _executeOp (log: ItoOpLog, seq: number, opValue: any) {
     const release = await this.contract.lock('_executeOp')
     try {
-      if (!this.contract.vm || !this.contract._cid) throw new Error('Contract VM not initialized')
+      assert(!!this.contract.vm, 'Contract VM not initialized')
 
       // enter restricted mode
-      await this.contract.vm.configContainer({cid: this.contract._cid, opts: {restricted: true}})
+      await this.contract.vm.restrict()
 
       // call process() if it exists
       let metadata = undefined
       try {
-        const processRes = await this.contract.vm.handleAPICall(this.contract._cid, 'process', [opValue])
+        const processRes = await this.contract.vm.handleAPICall('process', [opValue])
         metadata = processRes.result
       } catch (e) {
         console.debug('Failed to call process()', e)
@@ -95,7 +97,7 @@ export class ItoContractExecutor {
       const ack: ItoAck = {
         success: undefined,
         error: undefined,
-        oplog: keyToStr(log.pubkey),
+        origin: keyToStr(log.pubkey),
         seq,
         ts: Date.now(),
         metadata
@@ -106,7 +108,7 @@ export class ItoContractExecutor {
       let batch: ItoIndexBatchEntry[] = []
       let applyError
       try {
-        const applyRes = await this.contract.vm.handleAPICall(this.contract._cid, 'apply', [opValue, ack])
+        const applyRes = await this.contract.vm.handleAPICall('apply', [opValue, ack])
         batch = convertApplyActionsToBatch(applyRes)
         applySuccess = true
       } catch (e: any) {
@@ -115,7 +117,7 @@ export class ItoContractExecutor {
       }
 
       // leave restricted mode
-      await this.contract.vm.configContainer({cid: this.contract._cid, opts: {restricted: false}})
+      await this.contract.vm.unrestrict()
 
       // write the result
       if (applySuccess) {
@@ -136,13 +138,13 @@ export class ItoContractExecutor {
       // react to config changes
       for (const batchEntry of batch) {
         if (batchEntry.key === CONTRACT_SOURCE_KEY) {
-          this._onContractCodeChange(batchEntry.value)
+          await this._onContractCodeChange(batchEntry.value)
         } else if (batchEntry.key.startsWith(PARTICIPANT_KEY_PREFIX)) {
           const pubkey = batchEntry.key.slice(PARTICIPANT_KEY_PREFIX.length)
           if (batchEntry.action === 'put') {
-            this._onAddOplog(pubkey)
+            await this._onAddOplog(pubkey)
           } else if (batchEntry.action === 'delete') {
-            this._onRemoveOplog(pubkey)
+            await this._onRemoveOplog(pubkey)
           }
         }
       }

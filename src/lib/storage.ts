@@ -1,13 +1,88 @@
+import path from 'path'
+import { promises as fsp } from 'fs'
 import Hypercore from 'hypercore'
-import { Key, keyToBuf } from '../types.js'
+import crypto, { KeyPair } from 'hypercore-crypto'
+// @ts-ignore types not available -prf
+import ram from 'random-access-memory'
+import { Key, keyToStr, keyToBuf } from '../types.js'
+
+interface StoredKeyPair {
+  publicKey: Buffer
+  secretKey: Buffer|undefined
+}
 
 export class ItoStorage {
+  constructor (public basePath: string) {
+    this.basePath = path.resolve(basePath)
+  }
+
   async getHypercore (key: Key): Promise<Hypercore> {
-    key = keyToBuf(key)
-    throw new Error('TODO')
+    const corePath = this._getPath(key)
+    const keyPair = await this._readKeyPair(corePath)
+    const c = new Hypercore(corePath, keyPair.publicKey, {
+      keyPair: keyPair.secretKey ? (keyPair as KeyPair) : undefined
+    })
+    await c.ready()
+    return c
   }
 
   async createHypercore (): Promise<Hypercore> {
-    throw new Error('TODO')
+    const keyPair = crypto.keyPair()
+    const corePath = this._getPath(keyPair.publicKey)
+    const c = new Hypercore(corePath, keyPair.publicKey, {keyPair})
+    await c.ready()
+    await this._writeKeyPair(corePath, keyPair)
+    return c
+  }
+
+  private _getPath (key: Key): string {
+    return path.join(this.basePath, keyToStr(key))
+  }
+
+  private async _readKeyPair (corePath: string): Promise<StoredKeyPair> {
+    const str = await fsp.readFile(path.join(corePath, 'keypair.json'), 'utf8')
+    const obj = JSON.parse(str)
+    return {
+      publicKey: keyToBuf(obj.publicKey),
+      secretKey: obj.secretKey ? Buffer.from(obj.secretKey, 'hex') : undefined
+    }
+  }
+
+  private async _writeKeyPair (corePath: string, keyPair: StoredKeyPair): Promise<void> {
+    const obj = {
+      publicKey: keyToStr(keyPair.publicKey),
+      secretKey: keyPair.secretKey ? keyPair.secretKey.toString('hex') : undefined
+    }
+    const str = JSON.stringify(obj)
+    await fsp.writeFile(path.join(corePath, 'keypair.json'), str, 'utf8')
+  }
+}
+
+export class ItoStorageInMemory extends ItoStorage {
+  private loadedCores: Map<string, Hypercore> = new Map()
+  constructor () {
+    super('')
+  }
+
+  async getHypercore (key: Key): Promise<Hypercore> {
+    const keyStr = keyToStr(key)
+
+    const existingCore = this.loadedCores.get(keyStr)
+    if (existingCore) {
+      return existingCore.session()
+    }
+    
+    const c = new Hypercore(ram(), keyToBuf(key))
+    this.loadedCores.set(keyStr, c)
+    await c.ready()
+    return c
+  }
+
+  async createHypercore (): Promise<Hypercore> {
+    const keyPair = crypto.keyPair()
+    const c = new Hypercore(ram(), keyPair.publicKey, {keyPair})
+    this.loadedCores.set(keyToStr(keyPair.publicKey), c)
+    await c.ready()
+    return c
   }
 }

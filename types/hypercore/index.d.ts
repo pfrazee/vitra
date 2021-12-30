@@ -64,6 +64,15 @@ declare module 'hypercore' {
     tree: MerkleTree
   }
 
+  declare interface HypercoreConstructorOpts {
+    createIfMissing?: boolean
+    overwrite?: boolean
+    valueEncoding?: any
+    encodeBatch?: (batch: any[]) => any[]
+    keyPair?: {publicKey: Buffer, secretKey: Buffer}
+    encryptionKey?: Buffer
+  }
+
   declare class Hypercore extends EventEmitter {
     key: Buffer
     discoveryKey?: Buffer
@@ -77,6 +86,7 @@ declare module 'hypercore' {
 
     static createProtocolStream (isInitiator: boolean, opts?: any): NoiseSecretStream
 
+    constructor (storage: any, key?: Buffer, opts?: HypercoreConstructorOpts)
     session (opts?: any): Hypercore
     close (): Promise<void>
     replicate (isInitiator: boolean, opts?: any): NoiseSecretStream

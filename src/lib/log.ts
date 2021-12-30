@@ -1,16 +1,29 @@
+import EventEmitter from 'events'
+// @ts-ignore no types available -prf
+import { AggregateError } from 'core-js-pure/actual/aggregate-error.js'
 import Hypercore from 'hypercore'
 import Hyperbee from 'hyperbee'
 import { Readable } from 'streamx'
 import { ItoOperation } from './op.js'
-import { ItoOpLogEntry, ItoIndexLogListOpts, ItoIndexLogListEntry, ItoLogInclusionProof, ItoIndexBatchEntry } from '../types.js'
+import {
+  ItoOpLogEntry,
+  ItoIndexLogListOpts,
+  ItoIndexLogListEntry,
+  ItoLogInclusionProof,
+  ItoIndexBatchEntry,
+  Key,
+  PARTICIPANT_KEY_PREFIX,
+  keyToBuf
+} from '../types.js'
 import { ItoStorage } from './storage.js'
 // @ts-ignore no types available -prf
 import * as c from 'compact-encoding'
 
-export class ItoLog {
+export class ItoLog extends EventEmitter {
   core: Hypercore
 
   constructor (core: Hypercore) {
+    super()
     this.core = core
   }
 
@@ -24,6 +37,14 @@ export class ItoLog {
 
   get writable () {
     return this.core.writable
+  }
+
+  close () {
+    throw new Error('TODO')
+  }
+
+  async syncLatest () {
+    throw new Error('TODO')
   }
 
   async getBlockInclusionProof (seq: number): Promise<ItoLogInclusionProof> {
@@ -119,6 +140,19 @@ export class ItoIndexLog extends ItoLog {
       }
     }
     await b.flush()
+  }
+
+  async listOplogs (): Promise<Key[]> {
+    const entries = await this.list(PARTICIPANT_KEY_PREFIX)
+    const keys = []
+    for (const entry of entries) {
+      try {
+        keys.push(keyToBuf(entry.key.slice(PARTICIPANT_KEY_PREFIX.length)))
+      } catch (e: any) {
+        this.emit('warning', new AggregateError([e], `Invalid entry under ${PARTICIPANT_KEY_PREFIX}, key=${entry.key}`))
+      }
+    }
+    return keys
   }
 }
 
