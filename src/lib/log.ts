@@ -1,19 +1,21 @@
 import EventEmitter from 'events'
 // @ts-ignore no types available -prf
-import { AggregateError } from 'core-js-pure/actual/aggregate-error.js'
+import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import Hypercore from 'hypercore'
 import Hyperbee from 'hyperbee'
+import * as msgpackr from 'msgpackr'
 import { Readable } from 'streamx'
 import { ItoOperation } from './op.js'
 import {
   ItoOpLogEntry,
   ItoIndexLogListOpts,
-  ItoIndexLogListEntry,
+  ItoIndexLogEntry,
   ItoLogInclusionProof,
   ItoIndexBatchEntry,
   Key,
   PARTICIPANT_KEY_PREFIX,
-  keyToBuf
+  keyToBuf,
+  keyToStr
 } from '../types.js'
 import { ItoStorage } from './storage.js'
 // @ts-ignore no types available -prf
@@ -25,6 +27,17 @@ export class ItoLog extends EventEmitter {
   constructor (core: Hypercore) {
     super()
     this.core = core
+  }
+
+  [Symbol.for('nodejs.util.inspect.custom')] (depth: number, opts: {indentationLvl: number, stylize: Function}) {
+    let indent = ''
+    if (opts.indentationLvl) {
+      while (indent.length < opts.indentationLvl) indent += ' '
+    }
+    return this.constructor.name + '(\n' +
+      indent + '  key: ' + opts.stylize(keyToStr(this.pubkey), 'string') + '\n' +
+      indent + '  opened: ' + opts.stylize(this.core.opened, 'boolean') + '\n' +
+      indent + ')'
   }
 
   get pubkey () {
@@ -87,33 +100,40 @@ export class ItoOpLog extends ItoLog {
     return new ItoOpLog(core)
   }
 
-  get length (): number {
-    throw new Error('TODO')
-  }
-
   async get (seq: number): Promise<ItoOpLogEntry> {
-    throw new Error('TODO')
+    const value = await this.core.get(seq)
+    return {
+      seq,
+      value: msgpackr.unpack(value)
+    }
   }
 
   async dangerousAppend (values: any[]): Promise<ItoOperation[]> {
     const ops = []
-    const baseSeq = await this.core.append(values)
+    const baseSeq = await this.core.append(values.map(v => msgpackr.pack(v)))
     for (let i = 0; i < values.length; i++) {
       const seq = baseSeq + i
       const value = values[i]
       const proof = await this.getBlockInclusionProof(seq)
-      ops.push(new ItoOperation(this, value, proof))
+      ops.push(new ItoOperation(this, proof, value))
     }
     return ops
   }
 }
 
 export class ItoIndexLog extends ItoLog {
-  bee: Hyperbee|undefined
+  bee: Hyperbee
 
   constructor (core: Hypercore) {
     super(core)
-    this.bee = new Hyperbee(this.core)
+    this.bee = new Hyperbee(this.core, {
+      keyEncoding: 'utf-8',
+      valueEncoding: {
+        encode: (v: any) => msgpackr.pack(v),
+        encodingLength: (v: any) => msgpackr.pack(v).length,
+        decode: (v: any) => msgpackr.unpack(v)
+      }
+    })
   }
 
   static async create (storage: ItoStorage): Promise<ItoIndexLog> {
@@ -121,19 +141,19 @@ export class ItoIndexLog extends ItoLog {
     return new ItoIndexLog(core)
   }
 
-  async list (prefix = '/', opts?: ItoIndexLogListOpts): Promise<ItoIndexLogListEntry[]> {
+  async list (prefix = '/', opts?: ItoIndexLogListOpts): Promise<ItoIndexLogEntry[]> {
     throw new Error('TODO')
   }
 
-  async get (key: string): Promise<any> {
-    throw new Error('TODO')
+  async get (key: string): Promise<ItoIndexLogEntry> {
+    return await this.bee.get(key)
   }
 
   async dangerousBatch (batch: ItoIndexBatchEntry[]) {
     if (!this.bee) throw new Error('Hyperbee not initialized')
     const b = this.bee.batch()
     for (const entry of batch) {
-      if (entry.action === 'put') {
+      if (entry.type === 'put') {
         await b.put(entry.key, entry.value)
       } else {
         await b.del(entry.key)

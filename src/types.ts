@@ -28,7 +28,7 @@ export interface ItoAck {
 }
 
 export interface ItoIndexBatchEntry {
-  action: string
+  type: string
   key: string
   value?: any
 }
@@ -43,7 +43,7 @@ export interface ItoIndexLogListOpts {
   limit?: number
 }
 
-export interface ItoIndexLogListEntry {
+export interface ItoIndexLogEntry {
   seq: number
   key: string
   value: any

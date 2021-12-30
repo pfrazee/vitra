@@ -1,12 +1,15 @@
+import EventEmitter from 'events'
 // @ts-ignore no types available -prf
 import assert from 'assert'
 // @ts-ignore no types available -prf
-import { AggregateError } from 'core-js-pure/actual/aggregate-error.js'
+import AggregateError from 'core-js-pure/actual/aggregate-error.js'
+import * as msgpackr from 'msgpackr'
 import {
   ItoAck,
   ItoIndexBatchEntry,
   CONTRACT_SOURCE_KEY,
   PARTICIPANT_KEY_PREFIX,
+  ACK_KEY_PREFIX,
   Key,
   keyToStr
 } from '../types.js'
@@ -15,9 +18,11 @@ import { ItoOpLog, ReadStream } from './log.js'
 
 const OPLOG_WATCH_RETRY_TIMEOUT = 5e3
 
-export class ItoContractExecutor {
+export class ItoContractExecutor extends EventEmitter {
+  private _lastExecutedSeqs: Map<string, number> = new Map()
   private _oplogReadStreams: Map<string, ReadStream> = new Map()
   constructor (public contract: ItoContract) {
+    super()
   }
 
   // public api
@@ -38,19 +43,54 @@ export class ItoContractExecutor {
     }
   }
 
+  async sync () {
+    await Promise.all(this.contract.oplogs.map(oplog => oplog.core.update()))
+    const remaining: Map<string, number> = new Map()
+    for (const oplog of this.contract.oplogs) {
+      const current = this._getLastExecutedSeq(oplog, -1)
+      const target = oplog.length - 1
+      if (current < target) {
+        remaining.set(keyToStr(oplog.pubkey), target)
+      }
+    }
+    if (remaining.size === 0) {
+      return
+    }
+    return new Promise(resolve => {
+      const onEmit = (log: ItoOpLog, seq: number) => {
+        const keystr = keyToStr(log.pubkey)
+        const target = remaining.get(keystr)
+        if (typeof target !== 'undefined' && target <= seq) {
+          remaining.delete(keystr)
+        }
+        if (remaining.size === 0) {
+          this.removeListener('executed-op', onEmit)
+          resolve(undefined)
+        }
+      }
+      this.on('executed-op', onEmit)
+    })
+  }
+
   // private methods
   // =
 
-  private _getLastExecutedSeq (oplog: ItoOpLog): number {
-    throw new Error('TODO')
+  private _getLastExecutedSeq (oplog: ItoOpLog, fallback = 0): number {
+    // TODO
+    console.debug('TODO: _getLastExecutedSeq()')
+    return this._lastExecutedSeqs.get(keyToStr(oplog.pubkey)) || fallback
   }
 
   private _putLastExecutedSeq (oplog: ItoOpLog, seq: number) {
-    throw new Error('TODO')
+    // TODO
+    console.debug('TODO: _putLastExecutedSeq()')
+    this._lastExecutedSeqs.set(keyToStr(oplog.pubkey), seq)
   }
 
   private _createAckKey (): string {
-    throw new Error('TODO')
+    // TODO
+    console.debug('TODO: _createAckKey()')
+    return `${ACK_KEY_PREFIX}${Date.now()}`
   }
 
   private _watchOpLog (log: ItoOpLog) {
@@ -61,7 +101,7 @@ export class ItoContractExecutor {
     const s = log.createLogReadStream({start, live: true})
     this._oplogReadStreams.set(keystr, s)
 
-    s.on('data', (entry: {seq: number, value: any}) => this._executeOp(log, entry.seq, entry.value))
+    s.on('data', (entry: {seq: number, value: any}) => this._executeOp(log, entry.seq, msgpackr.unpack(entry.value)))
     s.on('error', (err: any) => {
       this.contract.emit('error', new AggregateError([err], `An error occurred while reading oplog ${keystr}`))
     })
@@ -87,7 +127,7 @@ export class ItoContractExecutor {
       // call process() if it exists
       let metadata = undefined
       try {
-        const processRes = await this.contract.vm.handleAPICall('process', [opValue])
+        const processRes = await this.contract.vm.contractProcess(opValue)
         metadata = processRes.result
       } catch (e) {
         console.debug('Failed to call process()', e)
@@ -108,8 +148,8 @@ export class ItoContractExecutor {
       let batch: ItoIndexBatchEntry[] = []
       let applyError
       try {
-        const applyRes = await this.contract.vm.handleAPICall('apply', [opValue, ack])
-        batch = convertApplyActionsToBatch(applyRes)
+        const applyRes = await this.contract.vm.contractApply(opValue, ack)
+        batch = convertApplyActionsToBatch(applyRes.actions)
         applySuccess = true
       } catch (e: any) {
         applyError = e
@@ -128,7 +168,7 @@ export class ItoContractExecutor {
         batch.length = 0
       }
       batch.unshift({
-        action: 'put',
+        type: 'put',
         key: this._createAckKey(),
         value: ack
       })
@@ -141,13 +181,15 @@ export class ItoContractExecutor {
           await this._onContractCodeChange(batchEntry.value)
         } else if (batchEntry.key.startsWith(PARTICIPANT_KEY_PREFIX)) {
           const pubkey = batchEntry.key.slice(PARTICIPANT_KEY_PREFIX.length)
-          if (batchEntry.action === 'put') {
+          if (batchEntry.type === 'put') {
             await this._onAddOplog(pubkey)
-          } else if (batchEntry.action === 'delete') {
+          } else if (batchEntry.type === 'delete') {
             await this._onRemoveOplog(pubkey)
           }
         }
       }
+
+      this.emit('executed-op', log, seq, opValue)
     } finally {
       release()
     }
@@ -166,9 +208,9 @@ export class ItoContractExecutor {
   }
 }
 
-type ActionValue = {action: string, value?: any}
+type ActionValue = {type: string, value?: any}
 function convertApplyActionsToBatch (actions: Record<string, ActionValue>): ItoIndexBatchEntry[] {
   return Object.entries(actions)
-    .map(([key, action]) => ({key, action: action.action, value: action.value}))
+    .map(([key, action]) => ({key, type: action.type, value: action.value}))
     .sort((a, b) => a.key.localeCompare(b.key))
 }

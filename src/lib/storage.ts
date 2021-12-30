@@ -72,7 +72,7 @@ export class ItoStorageInMemory extends ItoStorage {
       return existingCore.session()
     }
     
-    const c = new Hypercore(ram(), keyToBuf(key))
+    const c = new Hypercore(ram, keyToBuf(key))
     this.loadedCores.set(keyStr, c)
     await c.ready()
     return c
@@ -80,7 +80,7 @@ export class ItoStorageInMemory extends ItoStorage {
 
   async createHypercore (): Promise<Hypercore> {
     const keyPair = crypto.keyPair()
-    const c = new Hypercore(ram(), keyPair.publicKey, {keyPair})
+    const c = new Hypercore(ram, keyPair.publicKey, {keyPair})
     this.loadedCores.set(keyToStr(keyPair.publicKey), c)
     await c.ready()
     return c

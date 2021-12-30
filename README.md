@@ -56,7 +56,7 @@ export function put ({key, value}, emit) {
 
 export const apply = {
   PUT (tx, op, ack) {
-    assert(typeof op.key === 'string' && key.length > 0)
+    assert(typeof op.key === 'string' && op.key.length > 0)
     tx.put(op.key, op.value)
   }
 }

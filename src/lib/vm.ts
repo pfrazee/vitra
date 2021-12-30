@@ -1,8 +1,13 @@
 import EventEmitter from 'events'
 import assert from 'assert'
+import path from 'path'
+import { fileURLToPath } from 'url'
 import { Sandbox as ConfineSandbox } from 'confine-sandbox'
 import { ItoContract } from './contract.js'
 import { keyToStr } from '../types.js'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const NODE_MODULES_PATH = path.join(__dirname, '..', '..', 'node_modules')
 
 export class ItoVM extends EventEmitter {
   restricted = false
@@ -16,8 +21,13 @@ export class ItoVM extends EventEmitter {
   async init () {
     this.sandbox = new ConfineSandbox({
       runtime: 'ito-confine-runtime',
-      globals: this._createVMGlobals()
+      globals: this._createVMGlobals(),
+      nodeModulesPath: NODE_MODULES_PATH,
+      pipeStdout: true,
+      pipeStderr: true
     })
+    this.sandbox.on('container-runtime-error', evt => this.emit('error', evt))
+    await this.sandbox.init()
     const {cid} = await this.sandbox.execContainer({
       source: this.source,
       env: {
@@ -39,10 +49,22 @@ export class ItoVM extends EventEmitter {
     this.cid = undefined
   }
 
-  async handleAPICall (methodName: string, params: any[]): Promise<any> {
+  async contractCall (methodName: string, params: Record<string, any>): Promise<any> {
     assert(!!this.sandbox, 'Contract VM not initialized')
     assert(!!this.cid, 'Contract VM not initialized')
-    return await this.sandbox.handleAPICall(this.cid, methodName, params)
+    return await this.sandbox.handleAPICall(this.cid, methodName, [params])
+  }
+
+  async contractProcess (op: any): Promise<any> {
+    assert(!!this.sandbox, 'Contract VM not initialized')
+    assert(!!this.cid, 'Contract VM not initialized')
+    return await this.sandbox.handleAPICall(this.cid, 'process', [op])
+  }
+
+  async contractApply (op: any, ack: any): Promise<any> {
+    assert(!!this.sandbox, 'Contract VM not initialized')
+    assert(!!this.cid, 'Contract VM not initialized')
+    return await this.sandbox.handleAPICall(this.cid, 'apply', [op, ack])
   }
 
   async restrict () {
@@ -72,10 +94,20 @@ export class ItoVM extends EventEmitter {
       },
       __internal__: {
         contract: {
-          indexList: this.contract.index.list.bind(this),
-          indexGet: this.contract.index.get.bind(this),
-          oplogGetLength: () => this.contract.myOplog?.core.length,
-          oplogGet: this.contract.myOplog?.get.bind(this)
+          indexList: async (_pubkey: string, prefix: string, opts?: any) => {
+            return await this.contract.index.list(prefix, opts)
+          },
+          indexGet: async (_pubkey: string, key: string) => {
+            return await this.contract.index.get(key)
+          },
+          oplogGetLength: (pubkey: string) => {
+            // TODO
+            return this.contract.myOplog?.core.length
+          },
+          oplogGet: async (pubkey: string, seq: number) => {
+            // TODO
+            return await this.contract.myOplog?.get(seq)
+          }
         }
       }
     }

@@ -1,5 +1,5 @@
 // @ts-ignore no types available -prf
-import { AggregateError } from 'core-js-pure/actual/aggregate-error.js'
+import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as assert from 'assert'
 import { EventEmitter } from 'events'
 import {
@@ -22,7 +22,7 @@ import lock from './lock.js'
 
 export class ItoContract extends EventEmitter {
   opening = false
-  open = false
+  opened = false
   closing = false
   closed = false
 
@@ -30,7 +30,7 @@ export class ItoContract extends EventEmitter {
   index: ItoIndexLog
   oplogs: ItoOpLog[] = [] 
   vm: ItoVM|undefined
-  private _executor: ItoContractExecutor|undefined
+  executor: ItoContractExecutor|undefined
   private _lockPrefix = ''
 
   constructor (storage: ItoStorage, index: ItoIndexLog) {
@@ -60,6 +60,19 @@ export class ItoContract extends EventEmitter {
     return lock(`${this._lockPrefix}:${name}`)
   }
 
+  [Symbol.for('nodejs.util.inspect.custom')] (depth: number, opts: {indentationLvl: number, stylize: Function}) {
+    let indent = ''
+    if (opts.indentationLvl) {
+      while (indent.length < opts.indentationLvl) indent += ' '
+    }
+    return this.constructor.name + '(\n' +
+      indent + '  key: ' + opts.stylize(keyToStr(this.pubkey), 'string') + '\n' +
+      indent + '  opened: ' + opts.stylize(this.opened, 'boolean') + '\n' +
+      indent + '  isExecutor: ' + opts.stylize(this.isExecutor, 'boolean') + '\n' +
+      indent + '  isParticipant: ' + opts.stylize(this.isParticipant, 'boolean') + '\n' +
+      indent + ')'
+  }
+
   // management
   // =
 
@@ -75,11 +88,11 @@ export class ItoContract extends EventEmitter {
 
     await contract._writeInitBlocks(opts?.code?.source)
     await contract._createVM()
-    contract._executor = new ItoContractExecutor(contract)
-    contract._executor.start()
+    contract.executor = new ItoContractExecutor(contract)
+    contract.executor.start()
 
     contract.opening = false
-    contract.open = true
+    contract.opened = true
     return contract
   }
 
@@ -100,19 +113,19 @@ export class ItoContract extends EventEmitter {
     
     await contract._createVM()
     if (contract.isExecutor) {
-      contract._executor = new ItoContractExecutor(contract)
-      contract._executor.start()
+      contract.executor = new ItoContractExecutor(contract)
+      contract.executor.start()
     }
     
     contract.opening = false
-    contract.open = true
+    contract.opened = true
     return contract
   }
 
   async destroy () {
     this.closing = true
 
-    this._executor?.stop()
+    this.executor?.stop()
     this.vm?.destroy()
     await Promise.all([
       this.index.close(),
@@ -120,7 +133,7 @@ export class ItoContract extends EventEmitter {
     ])
 
     this.closing = false
-    this.open = false
+    this.opened = false
     this.closed = true
   }
 
@@ -138,12 +151,12 @@ export class ItoContract extends EventEmitter {
   // transactions
   // =
 
-  async call (methodName: string, params: any[]): Promise<ItoTransaction> {
+  async call (methodName: string, params: Record<string, any>): Promise<ItoTransaction> {
     if (methodName === 'process' || methodName === 'apply') {
       throw new Error(`Cannot call "${methodName}" directly`)
     }
     if (this.vm) {
-      const res = await this.vm.handleAPICall(methodName, params)
+      const res = await this.vm.contractCall(methodName, params)
       let ops: ItoOperation[] = []
       if (res.ops?.length) {
         if (!this.myOplog) {
@@ -190,36 +203,40 @@ export class ItoContract extends EventEmitter {
   private async _readContractCode (): Promise<string> {
     const src = await this.index.get(CONTRACT_SOURCE_KEY)
     if (!src) throw new Error('No contract sourcecode found')
-    if (Buffer.isBuffer(src)) return src.toString('utf8')
-    if (typeof src === 'string') return src
+    if (Buffer.isBuffer(src.value)) return src.value.toString('utf8')
+    if (typeof src.value === 'string') return src.value
     throw new Error(`Invalid contract sourcecode entry; must be a string or a buffer containing utf-8.`)
   }
 
   private async _createVM () {
     const source = await this._readContractCode()
     this.vm = new ItoVM(this, source)
-    await this.vm
+    this.vm.on('error', (evt: {error: string}) => {
+      this.emit('error', new AggregateError([new Error(evt.error)], 'The contract experienced a runtime error'))
+      this.destroy()
+    })
+    await this.vm.init()
   }
 
   // execution
   // =
 
   private async _writeInitBlocks (source?: string) {
-    assert.ok(this.index.length > 0, 'Cannot write init blocks: index log already has entries')
+    assert.ok(this.index.length === 0, 'Cannot write init blocks: index log already has entries')
     assert.ok(typeof source === 'string', 'Contract source must be provided')
     assert.ok(this.oplogs.length > 0, 'Oplogs must be created before writing init blocks')
     const batch: ItoIndexBatchEntry[] = [
-      {action: 'put', key: CONTRACT_SOURCE_KEY, value: source}
+      {type: 'put', key: CONTRACT_SOURCE_KEY, value: source}
     ]
     for (const oplog of this.oplogs) {
       const pubkey = keyToStr(oplog.pubkey)
       batch.push({
-        action: 'put',
+        type: 'put',
         key: `${PARTICIPANT_KEY_PREFIX}${pubkey}`,
         value: {pubkey}
       })
     }
-    batch.push({action: 'put', key: `${ACK_KEY_PREFIX}0`, value: {}})
+    batch.push({type: 'put', key: `${ACK_KEY_PREFIX}0`, value: {}})
     await this.index.dangerousBatch(batch)
   }
 }

@@ -50,6 +50,12 @@ Entries under `.sys/acks/` can not be modified by the contract.
 
 > ℹ️ Acks are stored in the output logs to ensure atomicity of transaction-handling.
 
+## Encodings
+
+- Input log values: messagepack.
+- Output index keys: utf8 with a `\x00` separator.
+- Output index values: messagepack.
+
 ## Flows
 
 ### Initialization flow (executor)
