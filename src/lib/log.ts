@@ -1,3 +1,4 @@
+import assert from 'assert'
 import EventEmitter from 'events'
 // @ts-ignore no types available -prf
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
@@ -17,9 +18,11 @@ import {
   keyToBuf,
   keyToStr
 } from '../types.js'
+import { beeShallowList, pathToKey, keyToPath } from './hyper.js'
 import { ItoStorage } from './storage.js'
 // @ts-ignore no types available -prf
 import * as c from 'compact-encoding'
+
 
 export class ItoLog extends EventEmitter {
   core: Hypercore
@@ -53,7 +56,7 @@ export class ItoLog extends EventEmitter {
   }
 
   close () {
-    throw new Error('TODO')
+    this.core.close()
   }
 
   async syncLatest () {
@@ -142,21 +145,44 @@ export class ItoIndexLog extends ItoLog {
   }
 
   async list (prefix = '/', opts?: ItoIndexLogListOpts): Promise<ItoIndexLogEntry[]> {
-    throw new Error('TODO')
+    let arr = await beeShallowList(this.bee, prefix.split('/').filter(Boolean))
+    if (opts?.reverse) arr.reverse()
+    if (opts?.offset && opts?.limit) {
+      arr = arr.slice(opts.offset, opts.offset + opts.limit)
+    } else if (opts?.offset) {
+      arr = arr.slice(opts.offset)
+    } else if (opts?.limit) {
+      arr = arr.slice(0, opts.limit)
+    }
+    return arr
   }
 
-  async get (key: string): Promise<ItoIndexLogEntry> {
-    return await this.bee.get(key)
+  async get (path: string): Promise<ItoIndexLogEntry|undefined> {
+    const entry = await this.bee.get(pathToKey(path))
+    if (!entry) return undefined
+    const pathSegs = entry.key.split(`\x00`).filter(Boolean)
+    return {
+      seq: entry.seq,
+      container: false,
+      key: pathSegs[pathSegs.length - 1],
+      path: `/${pathSegs.join('/')}`,
+      value: entry.value
+    }
   }
 
   async dangerousBatch (batch: ItoIndexBatchEntry[]) {
     if (!this.bee) throw new Error('Hyperbee not initialized')
     const b = this.bee.batch()
     for (const entry of batch) {
+      assert(typeof entry.key === 'string' && entry.key.length, 'Invalid batch entry key')
+      assert(entry.key !== '/', 'Invalid batch entry key (cannot write to /)')
+      const key = pathToKey(entry.key)
       if (entry.type === 'put') {
-        await b.put(entry.key, entry.value)
+        await b.put(key, entry.value)
+      } else if (entry.type === 'delete') {
+        await b.del(key)
       } else {
-        await b.del(entry.key)
+        throw new Error(`Invalid batch entry type: "${entry.type}"`)
       }
     }
     await b.flush()
@@ -223,3 +249,4 @@ function signable (hash: Buffer, length: number, fork: number): Buffer {
   c.uint64.encode(state, fork)
   return state.buffer
 }
+

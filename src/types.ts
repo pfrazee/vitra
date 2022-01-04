@@ -40,12 +40,15 @@ export interface ItoOpLogEntry {
 
 export interface ItoIndexLogListOpts {
   reverse?: boolean
+  offset?: number
   limit?: number
 }
 
 export interface ItoIndexLogEntry {
-  seq: number
+  container: boolean
+  seq: number|undefined
   key: string
+  path: string
   value: any
 }
 

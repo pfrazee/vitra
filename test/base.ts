@@ -43,4 +43,5 @@ ava('simple full contract run', async t => {
   t.falsy(res1.response)
   t.deepEqual(res2.ops[0].value, { op: 'PUT', key: '/foo', value: 'hello world' })
   t.deepEqual(res3.response, { seq: 5, key: '/foo', value: 'hello world' })
+  await contract.close()
 })
