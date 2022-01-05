@@ -98,9 +98,13 @@ export class ItoLog extends EventEmitter {
 }
 
 export class ItoOpLog extends ItoLog {
-  static async create (storage: ItoStorage): Promise<ItoOpLog> {
+  constructor (core: Hypercore, public id: number) {
+    super(core)
+  }
+
+  static async create (storage: ItoStorage, id: number): Promise<ItoOpLog> {
     const core = await storage.createHypercore()
-    return new ItoOpLog(core)
+    return new ItoOpLog(core, id)
   }
 
   async get (seq: number): Promise<ItoOpLogEntry> {
@@ -188,17 +192,23 @@ export class ItoIndexLog extends ItoLog {
     await b.flush()
   }
 
-  async listOplogs (): Promise<Key[]> {
+  async listOplogs (): Promise<{id: number, pubkey: Key}[]> {
     const entries = await this.list(PARTICIPANT_KEY_PREFIX)
-    const keys = []
+    const oplogs = []
     for (const entry of entries) {
       try {
-        keys.push(keyToBuf(entry.key.slice(PARTICIPANT_KEY_PREFIX.length)))
+        if (!entry.value.active) continue
+        const id = Number(entry.key)
+        if (isNaN(id)) throw new Error(`Invalid ID: ${id}`)
+        oplogs.push({
+          id,
+          pubkey: entry.value.pubkey
+        })
       } catch (e: any) {
         this.emit('warning', new AggregateError([e], `Invalid entry under ${PARTICIPANT_KEY_PREFIX}, key=${entry.key}`))
       }
     }
-    return keys
+    return oplogs
   }
 }
 

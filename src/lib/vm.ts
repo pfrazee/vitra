@@ -10,6 +10,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const NODE_MODULES_PATH = path.join(__dirname, '..', '..', 'node_modules')
 
 export class ItoVM extends EventEmitter {
+  opening = false
+  opened = false
+  closing = false
+  closed = false
+
   restricted = false
   private sandbox: ConfineSandbox|undefined
   private cid: number|undefined
@@ -18,7 +23,10 @@ export class ItoVM extends EventEmitter {
     super()
   }
 
-  async init () {
+  async open () {
+    assert(!this.closing && !this.closed, 'Executor already closed')
+    if (this.opened || this.opening) return
+    this.opening = true
     this.sandbox = new ConfineSandbox({
       runtime: 'ito-confine-runtime',
       globals: this._createVMGlobals(),
@@ -36,9 +44,14 @@ export class ItoVM extends EventEmitter {
       }
     })
     this.cid = cid
+    this.opening = false
+    this.opened = true
   }
 
-  async destroy () {
+  async close () {
+    assert(this.opened, 'VM not opened')
+    if (this.closing || this.closed) return
+    this.closing = true
     if (this.sandbox) {
       if (this.cid) {
         await this.sandbox.killContainer({cid: this.cid})
@@ -47,6 +60,9 @@ export class ItoVM extends EventEmitter {
     }
     this.sandbox = undefined
     this.cid = undefined
+    this.closing = false
+    this.opened = false
+    this.closed = true
   }
 
   async contractCall (methodName: string, params: Record<string, any>): Promise<any> {

@@ -12,6 +12,7 @@ import {
   keyToStr,
   keyToBuf
 } from '../types.js'
+import { ItoSchemaInput } from '../schemas.js'
 import { ItoStorage } from './storage.js'
 import { ItoOperation } from './op.js'
 import { ItoTransaction } from './tx.js'
@@ -31,7 +32,9 @@ export class ItoContract extends EventEmitter {
   oplogs: ItoOpLog[] = [] 
   vm: ItoVM|undefined
   executor: ItoContractExecutor|undefined
+
   private _lockPrefix = ''
+  _oplogIdCounter = 0
 
   constructor (storage: ItoStorage, index: ItoIndexLog) {
     super()
@@ -54,6 +57,10 @@ export class ItoContract extends EventEmitter {
 
   get isParticipant (): boolean {
     return !!this.myOplog
+  }
+
+  isOplogParticipant (oplog: ItoOpLog): boolean {
+    return !!this.oplogs.find(oplog2 => oplog2.pubkey.equals(oplog.pubkey))
   }
 
   lock (name: string): Promise<() => void> {
@@ -84,12 +91,14 @@ export class ItoContract extends EventEmitter {
     const index = await ItoIndexLog.create(storage)
     const contract = new ItoContract(storage, index)
     contract.opening = true
-    contract.oplogs.push(await ItoOpLog.create(storage)) // executor oplog
+    contract.oplogs.push(await ItoOpLog.create(storage, contract._oplogIdCounter++)) // executor oplog
 
     await contract._writeInitBlocks(opts?.code?.source)
+    await contract._readOplogIdCounter()
+
     await contract._createVM()
     contract.executor = new ItoContractExecutor(contract)
-    contract.executor.start()
+    contract.executor.open()
 
     contract.opening = false
     contract.opened = true
@@ -107,14 +116,16 @@ export class ItoContract extends EventEmitter {
     const contract = new ItoContract(_storage, index) 
     contract.opening = true
 
-    const oplogPubkeys = await contract.index.listOplogs()
-    const oplogCores = await Promise.all(oplogPubkeys.map(pubkey => _storage.getHypercore(pubkey)))
-    contract.oplogs = oplogCores.map(core => new ItoOpLog(core))
+    const oplogs = await contract.index.listOplogs()
+    contract.oplogs = await Promise.all(oplogs.map(async (oplog) => {
+      return new ItoOpLog(await _storage.getHypercore(oplog.pubkey), oplog.id)
+    }))
+    await contract._readOplogIdCounter()
     
     await contract._createVM()
     if (contract.isExecutor) {
       contract.executor = new ItoContractExecutor(contract)
-      contract.executor.start()
+      contract.executor.open()
     }
     
     contract.opening = false
@@ -122,11 +133,12 @@ export class ItoContract extends EventEmitter {
     return contract
   }
 
-  async destroy () {
+  async close () {
+    if (this.closing || this.closed) return
     this.closing = true
 
-    this.executor?.stop()
-    this.vm?.destroy()
+    this.executor?.close()
+    this.vm?.close()
     await Promise.all([
       this.index.close(),
       ...this.oplogs.map(log => log.close())
@@ -213,9 +225,9 @@ export class ItoContract extends EventEmitter {
     this.vm = new ItoVM(this, source)
     this.vm.on('error', (evt: {error: string}) => {
       this.emit('error', new AggregateError([new Error(evt.error)], 'The contract experienced a runtime error'))
-      this.destroy()
+      this.close()
     })
-    await this.vm.init()
+    await this.vm.open()
   }
 
   // execution
@@ -229,14 +241,52 @@ export class ItoContract extends EventEmitter {
       {type: 'put', key: CONTRACT_SOURCE_KEY, value: source}
     ]
     for (const oplog of this.oplogs) {
-      const pubkey = keyToStr(oplog.pubkey)
+      const pubkey = keyToBuf(oplog.pubkey)
       batch.push({
         type: 'put',
-        key: `${PARTICIPANT_KEY_PREFIX}${pubkey}`,
-        value: {pubkey}
+        key: `${PARTICIPANT_KEY_PREFIX}${oplog.id}`,
+        value: {pubkey, active: true}
       })
     }
     batch.push({type: 'put', key: `${ACK_KEY_PREFIX}0`, value: {}})
     await this.index.dangerousBatch(batch)
+  }
+
+  // helpers
+  // =
+
+  async _readOplogIdCounter (): Promise<void> {
+    const entries = await this.index.list(PARTICIPANT_KEY_PREFIX)
+    this._oplogIdCounter = entries.map(entry => Number(entry.key)).reduce((acc, v) => Math.max(acc, v), 0) + 1
+  }
+
+  _createAddOplogBatchAction (pubkey: Key): ItoIndexBatchEntry {
+    const pubkeyBuf = keyToBuf(pubkey)
+    return {type: 'put', key: `${PARTICIPANT_KEY_PREFIX}${this._oplogIdCounter++}`, value: {pubkey: pubkeyBuf, active: true}}
+  }
+
+  _createRemoveOplogBatchAction (pubkey: Key): ItoIndexBatchEntry|undefined {
+    const pubkeyBuf = keyToBuf(pubkey)
+    const oplog = this.oplogs.find(oplog => oplog.pubkey.equals(pubkeyBuf))
+    if (!oplog) return undefined
+    return {type: 'put', key: `${PARTICIPANT_KEY_PREFIX}${oplog.id}`, value: {pubkey: pubkeyBuf, active: false}}
+  }
+
+  async _onContractCodeChange (code: string) {
+    throw new Error('TODO')
+  }
+
+  async _onOplogChange (id: number, entry: ItoSchemaInput): Promise<void> {
+    const pubkeyBuf = entry.pubkey
+    const oplogIndex = this.oplogs.findIndex(oplog => oplog.pubkey.equals(pubkeyBuf))
+    if (oplogIndex === -1 && entry.active) {
+      const core = await this.storage.getHypercore(pubkeyBuf)
+      this.oplogs.push(new ItoOpLog(core, id))
+    } else if (oplogIndex !== -1 && !entry.active) {
+      const oplog = this.oplogs[oplogIndex]
+      oplog.close()
+      this.oplogs.splice(oplogIndex, 1)
+      this.executor?.unwatchOpLog(oplog)
+    }
   }
 }
