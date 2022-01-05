@@ -14,12 +14,13 @@ A blockchain-free smart contract runtime using secure ledgers. [Read the white p
   - [x] Restricted mode
   - [x] Add configure() to confine
 - [x] Create a d.ts for Hypercore & Hyperbee
-- [ ] Implement initialization
+- [x] Implement initialization
 - [x] Implement transactions
   - [x] API calls
   - [x] Op execution
 - [ ] API details & various tasks
   - [ ] Flows for creating oplogs
+  - [x] Await transaction processing
 - [ ] Implement verification
   - [ ] Append-only constraint violation detection
   - [ ] Inclusion proofs for

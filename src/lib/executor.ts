@@ -184,7 +184,8 @@ export class ItoContractExecutor extends EventEmitter {
         origin: keyToStr(log.pubkey),
         seq,
         ts: Date.now(),
-        metadata
+        metadata,
+        numMutations: 0
       }
 
       // call apply()
@@ -220,9 +221,10 @@ export class ItoContractExecutor extends EventEmitter {
       // write the result
       if (applySuccess) {
         ack.success = true
+        ack.numMutations = batch.length
       } else {
         ack.success = false
-        ack.error = applyError
+        ack.error = applyError.toString()
         batch.length = 0
       }
       batch.unshift({

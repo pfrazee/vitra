@@ -5,6 +5,8 @@ import { EventEmitter } from 'events'
 import {
   ItoContractCreateOpts,
   ItoIndexBatchEntry,
+  ItoAck,
+  ItoOperationResults,
   Key,
   keyToStr,
   keyToBuf
@@ -14,8 +16,10 @@ import {
   genParticipantPath,
   PARTICIPANT_PATH_PREFIX,
   GENESIS_ACK_PATH,
+  genAckPath,
   ItoSchemaInput
 } from '../schemas.js'
+import { parseHyperbeeMessage } from './hyper.js'
 import { ItoStorage } from './storage.js'
 import { ItoOperation } from './op.js'
 import { ItoTransaction } from './tx.js'
@@ -290,6 +294,32 @@ export class ItoContract extends EventEmitter {
       oplog.close()
       this.oplogs.splice(oplogIndex, 1)
       this.executor?.unwatchOpLog(oplog)
+    }
+  }
+
+  async _fetchOpAck (op: ItoOperation): Promise<ItoAck|undefined> {
+    const oplogId = op.oplog.id
+    const seq = op.proof.seq
+    const ack = (await this.index.get(genAckPath(oplogId, seq)))?.value
+    return ack ? (ack as ItoAck) : undefined
+  }
+
+  async _fetchOpMutations (op: ItoOperation): Promise<ItoOperationResults|undefined> {
+    for (let i = 0; i < this.index.core.length; i++) {
+      // console.log(parseHyperbeeMessage(i, await this.index.core.get(i)))
+    }
+
+    const oplogId = op.oplog.id
+    const seq = op.proof.seq
+    const ackEntry = await this.index.get(genAckPath(oplogId, seq))
+    if (ackEntry && ackEntry.seq) {
+      const results: ItoOperationResults = Object.assign(ackEntry.value, {mutations: []})
+      if (ackEntry.value.success) {
+        for (let i = ackEntry.seq + 1; i <= ackEntry.seq + results.numMutations; i++) {
+          results.mutations.push(parseHyperbeeMessage(i, await this.index.core.get(i)))
+        }
+      }
+      return results
     }
   }
 }

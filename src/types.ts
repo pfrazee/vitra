@@ -16,11 +16,16 @@ export interface ItoLogInclusionProof {
 
 export interface ItoAck {
   success: boolean|undefined
-  error: Error|undefined
+  error: string|undefined
   origin: string
   seq: number
   ts: number
   metadata: any
+  numMutations: number
+}
+
+export interface ItoOperationResults extends ItoAck {
+  mutations: any[]
 }
 
 export interface ItoIndexBatchEntry {

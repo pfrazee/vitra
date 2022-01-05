@@ -1,4 +1,7 @@
 import Hyperbee from 'hyperbee'
+// @ts-ignore no types available -prf
+import { Node } from 'hyperbee/lib/messages.js'
+import * as msgpackr from 'msgpackr'
 import { ItoIndexLogEntry } from '../types.js'
 
 const SEP = `\x00`
@@ -52,4 +55,20 @@ export async function beeShallowList (bee: Hyperbee, path: string[]): Promise<It
       bot = itemPath.join(SEP)
     }
   } while (true)
+}
+
+export function parseHyperbeeMessage (seq: number, message: Buffer): ItoIndexLogEntry|undefined {
+  try {
+    const decoded = Node.decode(message)
+    const path = beekeyToPath(decoded.key.toString('utf-8'))
+    return {
+      container: false,
+      seq,
+      path: `/${path}`,
+      name: path.split('/').filter(Boolean).pop() || '',
+      value: decoded.value ? msgpackr.decode(decoded.value) : undefined
+    }
+  } catch (e) {
+    return undefined
+  }
 }
