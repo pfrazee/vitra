@@ -1,7 +1,3 @@
-export const CONTRACT_SOURCE_KEY = '/.sys/contract/source'
-export const PARTICIPANT_KEY_PREFIX = '/.sys/inputs/'
-export const ACK_KEY_PREFIX = '/.sys/acks/'
-
 export type Key = string|Buffer
 
 export interface ItoContractCode {
@@ -29,7 +25,7 @@ export interface ItoAck {
 
 export interface ItoIndexBatchEntry {
   type: string
-  key: string
+  path: string
   value?: any
 }
 
@@ -47,8 +43,8 @@ export interface ItoIndexLogListOpts {
 export interface ItoIndexLogEntry {
   container: boolean
   seq: number|undefined
-  key: string
   path: string
+  name: string
   value: any
 }
 

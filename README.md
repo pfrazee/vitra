@@ -18,6 +18,8 @@ A blockchain-free smart contract runtime using secure ledgers. [Read the white p
 - [x] Implement transactions
   - [x] API calls
   - [x] Op execution
+- [ ] API details & various tasks
+  - [ ] Flows for creating oplogs
 - [ ] Implement verification
   - [ ] Append-only constraint violation detection
   - [ ] Inclusion proofs for

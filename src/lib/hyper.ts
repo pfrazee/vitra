@@ -5,11 +5,11 @@ const SEP = `\x00`
 const MIN = `\x00`
 const MAX = `\xff`
 
-export function pathToKey (path: string): string {
+export function pathToBeekey (path: string): string {
   return path.split('/').filter(Boolean).join(SEP)
 }
 
-export function keyToPath (key: string): string {
+export function beekeyToPath (key: string): string {
   return key.split(SEP).filter(Boolean).join('/')
 }
 
@@ -34,7 +34,7 @@ export async function beeShallowList (bee: Hyperbee, path: string[]): Promise<It
         arr.push({
           container: true,
           seq: undefined,
-          key: containerPath[containerPath.length - 1],
+          name: containerPath[containerPath.length - 1],
           path: containerPathStr,
           value: undefined
         })
@@ -44,7 +44,7 @@ export async function beeShallowList (bee: Hyperbee, path: string[]): Promise<It
       arr.push({
         container: false,
         seq: item.seq,
-        key: itemPath[itemPath.length - 1],
+        name: itemPath[itemPath.length - 1],
         path: `/${itemPath.join('/')}`,
         value: item.value
       })

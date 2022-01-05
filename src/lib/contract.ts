@@ -5,14 +5,17 @@ import { EventEmitter } from 'events'
 import {
   ItoContractCreateOpts,
   ItoIndexBatchEntry,
-  CONTRACT_SOURCE_KEY,
-  PARTICIPANT_KEY_PREFIX,
-  ACK_KEY_PREFIX,
   Key,
   keyToStr,
   keyToBuf
 } from '../types.js'
-import { ItoSchemaInput } from '../schemas.js'
+import { 
+  CONTRACT_SOURCE_PATH,
+  genParticipantPath,
+  PARTICIPANT_PATH_PREFIX,
+  genAckPath,
+  ItoSchemaInput
+} from '../schemas.js'
 import { ItoStorage } from './storage.js'
 import { ItoOperation } from './op.js'
 import { ItoTransaction } from './tx.js'
@@ -213,7 +216,7 @@ export class ItoContract extends EventEmitter {
   // =
 
   private async _readContractCode (): Promise<string> {
-    const src = await this.index.get(CONTRACT_SOURCE_KEY)
+    const src = await this.index.get(CONTRACT_SOURCE_PATH)
     if (!src) throw new Error('No contract sourcecode found')
     if (Buffer.isBuffer(src.value)) return src.value.toString('utf8')
     if (typeof src.value === 'string') return src.value
@@ -238,17 +241,17 @@ export class ItoContract extends EventEmitter {
     assert.ok(typeof source === 'string', 'Contract source must be provided')
     assert.ok(this.oplogs.length > 0, 'Oplogs must be created before writing init blocks')
     const batch: ItoIndexBatchEntry[] = [
-      {type: 'put', key: CONTRACT_SOURCE_KEY, value: source}
+      {type: 'put', path: CONTRACT_SOURCE_PATH, value: source}
     ]
     for (const oplog of this.oplogs) {
       const pubkey = keyToBuf(oplog.pubkey)
       batch.push({
         type: 'put',
-        key: `${PARTICIPANT_KEY_PREFIX}${oplog.id}`,
+        path: genParticipantPath(oplog.id),
         value: {pubkey, active: true}
       })
     }
-    batch.push({type: 'put', key: `${ACK_KEY_PREFIX}0`, value: {}})
+    batch.push({type: 'put', path: genAckPath(0, 0), value: {}})
     await this.index.dangerousBatch(batch)
   }
 
@@ -256,20 +259,20 @@ export class ItoContract extends EventEmitter {
   // =
 
   async _readOplogIdCounter (): Promise<void> {
-    const entries = await this.index.list(PARTICIPANT_KEY_PREFIX)
-    this._oplogIdCounter = entries.map(entry => Number(entry.key)).reduce((acc, v) => Math.max(acc, v), 0) + 1
+    const entries = await this.index.list(PARTICIPANT_PATH_PREFIX)
+    this._oplogIdCounter = entries.map(entry => Number(entry.name)).reduce((acc, v) => Math.max(acc, v), 0) + 1
   }
 
   _createAddOplogBatchAction (pubkey: Key): ItoIndexBatchEntry {
     const pubkeyBuf = keyToBuf(pubkey)
-    return {type: 'put', key: `${PARTICIPANT_KEY_PREFIX}${this._oplogIdCounter++}`, value: {pubkey: pubkeyBuf, active: true}}
+    return {type: 'put', path: genParticipantPath(this._oplogIdCounter++), value: {pubkey: pubkeyBuf, active: true}}
   }
 
   _createRemoveOplogBatchAction (pubkey: Key): ItoIndexBatchEntry|undefined {
     const pubkeyBuf = keyToBuf(pubkey)
     const oplog = this.oplogs.find(oplog => oplog.pubkey.equals(pubkeyBuf))
     if (!oplog) return undefined
-    return {type: 'put', key: `${PARTICIPANT_KEY_PREFIX}${oplog.id}`, value: {pubkey: pubkeyBuf, active: false}}
+    return {type: 'put', path: genParticipantPath(oplog.id), value: {pubkey: pubkeyBuf, active: false}}
   }
 
   async _onContractCodeChange (code: string) {

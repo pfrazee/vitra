@@ -4,14 +4,14 @@ import { ItoStorageInMemory, ItoIndexLog, ItoIndexLogEntry } from '../src/index.
 ava('batch modifications', async t => {
   const idx = await ItoIndexLog.create(new ItoStorageInMemory())
   await idx.dangerousBatch([
-    {type: 'put', key: '/foo', value: 1},
-    {type: 'put', key: 'bar', value: 2},
-    {type: 'put', key: '/baz/buz', value: 3},
-    {type: 'delete', key: 'nothing'}
+    {type: 'put', path: '/foo', value: 1},
+    {type: 'put', path: 'bar', value: 2},
+    {type: 'put', path: '/baz/buz', value: 3},
+    {type: 'delete', path: 'nothing'}
   ])
   t.is(idx.length, 4)
-  await t.throwsAsync(() => idx.dangerousBatch([{type: 'wrong', key: '/foo', value: 100}]))
-  await t.throwsAsync(() => idx.dangerousBatch([{type: 'put', key: '', value: 100}]))
+  await t.throwsAsync(() => idx.dangerousBatch([{type: 'wrong', path: '/foo', value: 100}]))
+  await t.throwsAsync(() => idx.dangerousBatch([{type: 'put', path: '', value: 100}]))
 })
 
 ava('list', async t => {
@@ -30,20 +30,20 @@ ava('list', async t => {
   }
   const idx = await ItoIndexLog.create(new ItoStorageInMemory())
   await idx.dangerousBatch([
-    {type: 'put', key: '/a', value: '/a'},
-    {type: 'put', key: '/a/a', value: '/a/a'},
-    {type: 'put', key: '/a/b', value: '/a/b'},
-    {type: 'put', key: '/a/c', value: '/a/c'},
-    {type: 'put', key: '/a/c/a', value: '/a/c/a'},
-    {type: 'put', key: '/a/d/a', value: '/a/d/a'},
-    {type: 'put', key: '/a/d/b', value: '/a/d/b'},
-    {type: 'put', key: '/a/e', value: '/a/e'},
-    {type: 'put', key: '/b', value: '/b'},
-    {type: 'put', key: '/c', value: '/c'},
-    {type: 'put', key: '/d', value: '/d'},
-    {type: 'put', key: '/e/a/a/a', value: '/e/a/a/a'},
-    {type: 'put', key: '/e/a/a/b', value: '/e/a/a/b'},
-    {type: 'put', key: '/e/a/a/c', value: '/e/a/a/c'},
+    {type: 'put', path: '/a', value: '/a'},
+    {type: 'put', path: '/a/a', value: '/a/a'},
+    {type: 'put', path: '/a/b', value: '/a/b'},
+    {type: 'put', path: '/a/c', value: '/a/c'},
+    {type: 'put', path: '/a/c/a', value: '/a/c/a'},
+    {type: 'put', path: '/a/d/a', value: '/a/d/a'},
+    {type: 'put', path: '/a/d/b', value: '/a/d/b'},
+    {type: 'put', path: '/a/e', value: '/a/e'},
+    {type: 'put', path: '/b', value: '/b'},
+    {type: 'put', path: '/c', value: '/c'},
+    {type: 'put', path: '/d', value: '/d'},
+    {type: 'put', path: '/e/a/a/a', value: '/e/a/a/a'},
+    {type: 'put', path: '/e/a/a/b', value: '/e/a/a/b'},
+    {type: 'put', path: '/e/a/a/c', value: '/e/a/a/c'},
   ])
   testOutput(await idx.list('/'), ['/a/', '/b', '/c', '/d', '/e/'])
   testOutput(await idx.list(''), ['/a/', '/b', '/c', '/d', '/e/'])
@@ -67,21 +67,21 @@ ava('list', async t => {
 })
 
 ava('get', async t => {
-  const testOutput = (res: ItoIndexLogEntry|undefined, key: string, path: string) => {
+  const testOutput = (res: ItoIndexLogEntry|undefined, name: string, path: string) => {
     t.truthy(res)
     if (res) {
-      t.is(res.key, key)
+      t.is(res.name, name)
       t.is(res.path, path)
       t.deepEqual(res.value, path)
     }
   }
   const idx = await ItoIndexLog.create(new ItoStorageInMemory())
   await idx.dangerousBatch([
-    {type: 'put', key: '/a', value: '/a'},
-    {type: 'put', key: '/a/a', value: '/a/a'},
-    {type: 'put', key: '/a/b', value: '/a/b'},
-    {type: 'put', key: '/a/c', value: '/a/c'},
-    {type: 'put', key: '/a/c/a', value: '/a/c/a'}
+    {type: 'put', path: '/a', value: '/a'},
+    {type: 'put', path: '/a/a', value: '/a/a'},
+    {type: 'put', path: '/a/b', value: '/a/b'},
+    {type: 'put', path: '/a/c', value: '/a/c'},
+    {type: 'put', path: '/a/c/a', value: '/a/c/a'}
   ])
   testOutput(await idx.get('/a'), 'a', '/a')
   testOutput(await idx.get('a'), 'a', '/a')

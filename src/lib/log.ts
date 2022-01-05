@@ -14,11 +14,12 @@ import {
   ItoLogInclusionProof,
   ItoIndexBatchEntry,
   Key,
-  PARTICIPANT_KEY_PREFIX,
-  keyToBuf,
   keyToStr
 } from '../types.js'
-import { beeShallowList, pathToKey, keyToPath } from './hyper.js'
+import {
+  PARTICIPANT_PATH_PREFIX,
+} from '../schemas.js'
+import { beeShallowList, pathToBeekey } from './hyper.js'
 import { ItoStorage } from './storage.js'
 // @ts-ignore no types available -prf
 import * as c from 'compact-encoding'
@@ -162,13 +163,13 @@ export class ItoIndexLog extends ItoLog {
   }
 
   async get (path: string): Promise<ItoIndexLogEntry|undefined> {
-    const entry = await this.bee.get(pathToKey(path))
+    const entry = await this.bee.get(pathToBeekey(path))
     if (!entry) return undefined
     const pathSegs = entry.key.split(`\x00`).filter(Boolean)
     return {
       seq: entry.seq,
       container: false,
-      key: pathSegs[pathSegs.length - 1],
+      name: pathSegs[pathSegs.length - 1],
       path: `/${pathSegs.join('/')}`,
       value: entry.value
     }
@@ -178,9 +179,9 @@ export class ItoIndexLog extends ItoLog {
     if (!this.bee) throw new Error('Hyperbee not initialized')
     const b = this.bee.batch()
     for (const entry of batch) {
-      assert(typeof entry.key === 'string' && entry.key.length, 'Invalid batch entry key')
-      assert(entry.key !== '/', 'Invalid batch entry key (cannot write to /)')
-      const key = pathToKey(entry.key)
+      assert(typeof entry.path === 'string' && entry.path.length, 'Invalid batch entry path')
+      assert(entry.path !== '/', 'Invalid batch entry path (cannot write to /)')
+      const key = pathToBeekey(entry.path)
       if (entry.type === 'put') {
         await b.put(key, entry.value)
       } else if (entry.type === 'delete') {
@@ -193,19 +194,19 @@ export class ItoIndexLog extends ItoLog {
   }
 
   async listOplogs (): Promise<{id: number, pubkey: Key}[]> {
-    const entries = await this.list(PARTICIPANT_KEY_PREFIX)
+    const entries = await this.list(PARTICIPANT_PATH_PREFIX)
     const oplogs = []
     for (const entry of entries) {
       try {
         if (!entry.value.active) continue
-        const id = Number(entry.key)
+        const id = Number(entry.name)
         if (isNaN(id)) throw new Error(`Invalid ID: ${id}`)
         oplogs.push({
           id,
           pubkey: entry.value.pubkey
         })
       } catch (e: any) {
-        this.emit('warning', new AggregateError([e], `Invalid entry under ${PARTICIPANT_KEY_PREFIX}, key=${entry.key}`))
+        this.emit('warning', new AggregateError([e], `Invalid entry under ${PARTICIPANT_PATH_PREFIX}, name=${entry.name}`))
       }
     }
     return oplogs

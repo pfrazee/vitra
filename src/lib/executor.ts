@@ -7,12 +7,13 @@ import * as msgpackr from 'msgpackr'
 import {
   ItoAck,
   ItoIndexBatchEntry,
-  CONTRACT_SOURCE_KEY,
-  PARTICIPANT_KEY_PREFIX,
-  ACK_KEY_PREFIX,
-  Key,
   keyToStr
 } from '../types.js'
+import {
+  CONTRACT_SOURCE_PATH,
+  PARTICIPANT_PATH_PREFIX,
+  genAckPath
+} from '../schemas.js'
 import { ItoContract } from './contract.js'
 import { ItoOpLog, ReadStream } from './log.js'
 
@@ -137,12 +138,6 @@ export class ItoContractExecutor extends EventEmitter {
     this._lastExecutedSeqs.set(keyToStr(oplog.pubkey), seq)
   }
 
-  private _createAckKey (): string {
-    // TODO
-    console.debug('TODO: _createAckKey()')
-    return `${ACK_KEY_PREFIX}${Date.now()}`
-  }
-
   private async _executeOp (log: ItoOpLog, seq: number, opValue: any) {
     const release = await this.contract.lock('_executeOp')
     try {
@@ -183,20 +178,20 @@ export class ItoContractExecutor extends EventEmitter {
       try {
         const applyRes = await this.contract.vm.contractApply(opValue, ack)
         batch = (Object.entries(applyRes.actions as ActionValue[])
-          .map(([key, action]): ItoIndexBatchEntry|undefined => {
-            if (key.startsWith('/.sys/')) {
+          .map(([path, action]): ItoIndexBatchEntry|undefined => {
+            if (path.startsWith('/.sys/')) {
               if (action.type === 'addOplog') {
                 return this.contract._createAddOplogBatchAction(action.value.pubkey)
               } else if (action.type === 'removeOplog') {
                 return this.contract._createRemoveOplogBatchAction(action.value.pubkey)
               } else if (action.type === 'setContractSource') {
-                return {type: 'put', key: CONTRACT_SOURCE_KEY, value: action.value.code}
+                return {type: 'put', path: CONTRACT_SOURCE_PATH, value: action.value.code}
               }
             }
-            return {key, type: action.type, value: action.value}
+            return {path, type: action.type, value: action.value}
           })
           .filter(Boolean) as ItoIndexBatchEntry[])
-          .sort((a, b) => a.key.localeCompare(b.key))
+          .sort((a, b) => a.path.localeCompare(b.path))
         applySuccess = true
       } catch (e: any) {
         applyError = e
@@ -216,7 +211,7 @@ export class ItoContractExecutor extends EventEmitter {
       }
       batch.unshift({
         type: 'put',
-        key: this._createAckKey(),
+        path: genAckPath(log.id, seq),
         value: ack
       })
       await this.contract.index.dangerousBatch(batch)
@@ -224,10 +219,10 @@ export class ItoContractExecutor extends EventEmitter {
 
       // react to config changes
       for (const batchEntry of batch) {
-        if (batchEntry.key === CONTRACT_SOURCE_KEY) {
+        if (batchEntry.path === CONTRACT_SOURCE_PATH) {
           await this.contract._onContractCodeChange(batchEntry.value)
-        } else if (batchEntry.key.startsWith(PARTICIPANT_KEY_PREFIX)) {
-          await this.contract._onOplogChange(Number(batchEntry.key.slice(PARTICIPANT_KEY_PREFIX.length)), batchEntry.value)
+        } else if (batchEntry.path.startsWith(PARTICIPANT_PATH_PREFIX)) {
+          await this.contract._onOplogChange(Number(batchEntry.path.slice(PARTICIPANT_PATH_PREFIX.length)), batchEntry.value)
         }
       }
 
