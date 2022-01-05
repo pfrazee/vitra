@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { ItoStorageInMemory, ItoContract } from '../src/index.js'
+import { StorageInMemory, Contract } from '../src/index.js'
 
 const CONTRACT = `
 export async function succeed (_, emit) {
@@ -25,7 +25,7 @@ export const apply = {
 `
 
 ava('process() metadata', async t => {
-  const contract = await ItoContract.create(new ItoStorageInMemory(), {
+  const contract = await Contract.create(new StorageInMemory(), {
     code: {source: CONTRACT}
   })
   await contract.call('succeed', {})
@@ -35,7 +35,7 @@ ava('process() metadata', async t => {
 })
 
 ava('can await call results (success)', async t => {
-  const contract = await ItoContract.create(new ItoStorageInMemory(), {
+  const contract = await Contract.create(new StorageInMemory(), {
     code: {source: CONTRACT}
   })
   const res1 = await contract.call('succeed', {})
@@ -64,7 +64,7 @@ ava('can await call results (success)', async t => {
 })
 
 ava('can await call results (failure)', async t => {
-  const contract = await ItoContract.create(new ItoStorageInMemory(), {
+  const contract = await Contract.create(new StorageInMemory(), {
     code: {source: CONTRACT}
   })
   const res1 = await contract.call('fail', {})

@@ -1,12 +1,14 @@
+import { Resource } from './util/resource.js'
+import { ResourcesManager } from './util/resources-manager.js'
 // @ts-ignore no types available -prf
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as assert from 'assert'
-import { EventEmitter } from 'events'
 import {
-  ItoContractCreateOpts,
-  ItoIndexBatchEntry,
-  ItoAck,
-  ItoOperationResults,
+  ContractCreateOpts,
+  IndexBatchEntry,
+  Ack,
+  OperationResults,
+  ApplyActions,
   Key,
   keyToStr,
   keyToBuf
@@ -19,31 +21,25 @@ import {
   genAckPath,
   ItoSchemaInput
 } from '../schemas.js'
-import { parseHyperbeeMessage } from './hyper.js'
-import { ItoStorage } from './storage.js'
-import { ItoOperation } from './op.js'
-import { ItoTransaction } from './tx.js'
-import { ItoIndexLog, ItoOpLog } from './log.js'
-import { ItoContractExecutor } from './executor.js'
-import { ItoVM } from './vm.js'
-import lock from './lock.js'
+import { parseHyperbeeMessage } from './util/hyper.js'
+import { Storage } from './storage.js'
+import { Operation, Transaction } from './transactions.js'
+import { IndexLog, OpLog } from './log.js'
+import { ContractExecutor } from './executor.js'
+import { VM } from './vm.js'
+import lock from './util/lock.js'
 
-export class ItoContract extends EventEmitter {
-  opening = false
-  opened = false
-  closing = false
-  closed = false
-
-  storage: ItoStorage
-  index: ItoIndexLog
-  oplogs: ItoOpLog[] = [] 
-  vm: ItoVM|undefined
-  executor: ItoContractExecutor|undefined
+export class Contract extends Resource {
+  storage: Storage
+  index: IndexLog
+  oplogs: ResourcesManager<OpLog> = new ResourcesManager()
+  vm: VM|undefined
+  executor: ContractExecutor|undefined
 
   private _lockPrefix = ''
-  _oplogIdCounter = 0
+  private _myOplog: OpLog|undefined
 
-  constructor (storage: ItoStorage, index: ItoIndexLog) {
+  constructor (storage: Storage, index: IndexLog) {
     super()
     this.storage = storage
     this.index = index
@@ -58,16 +54,25 @@ export class ItoContract extends EventEmitter {
     return this.index.writable
   }
 
-  get myOplog (): ItoOpLog|undefined {
-    return this.oplogs.find(oplog => oplog.writable)
+  get executorOplog (): OpLog|undefined {
+    return this.oplogs.find(oplog => oplog.isExecutor)
+  }
+
+  get myOplog (): OpLog|undefined {
+    return this._myOplog || this.oplogs.find(oplog => oplog.writable)
+  }
+
+  setMyOplog (log: OpLog|undefined) {
+    if (log) assert.ok(log.writable, 'Oplog must be writable')
+    this._myOplog = log
   }
 
   get isParticipant (): boolean {
     return !!this.myOplog
   }
 
-  isOplogParticipant (oplog: ItoOpLog): boolean {
-    return !!this.oplogs.find(oplog2 => oplog2.pubkey.equals(oplog.pubkey))
+  isOplogParticipant (oplog: OpLog): boolean {
+    return this.oplogs.has(oplog)
   }
 
   lock (name: string): Promise<() => void> {
@@ -90,70 +95,52 @@ export class ItoContract extends EventEmitter {
   // management
   // =
 
-  static async create (storage: ItoStorage|string, opts: ItoContractCreateOpts): Promise<ItoContract> {
-    if (typeof storage === 'string') storage = new ItoStorage(storage)
-    assert.ok(storage instanceof ItoStorage, 'storage is required')
+  static async create (storage: Storage|string, opts: ContractCreateOpts): Promise<Contract> {
+    if (typeof storage === 'string') storage = new Storage(storage)
+    assert.ok(storage instanceof Storage, 'storage is required')
     assert.equal(typeof opts?.code?.source, 'string', 'opts.code.source is required')
 
-    const index = await ItoIndexLog.create(storage)
-    const contract = new ItoContract(storage, index)
-    contract.opening = true
-    contract.oplogs.push(await ItoOpLog.create(storage, contract._oplogIdCounter++)) // executor oplog
-
+    const index = await IndexLog.create(storage)
+    const contract = new Contract(storage, index)
+    contract.oplogs.add(await OpLog.create(storage, true)) // executor oplog
     await contract._writeInitBlocks(opts?.code?.source)
-    await contract._readOplogIdCounter()
+    await contract.open()
 
-    await contract._createVM()
-    contract.executor = new ItoContractExecutor(contract)
-    await contract.executor.open()
-
-    contract.opening = false
-    contract.opened = true
     return contract
   }
 
-  static async load (storage: ItoStorage|string, pubkey: Key): Promise<ItoContract> {
-    const _storage: ItoStorage = (typeof storage === 'string') ? new ItoStorage(storage) : storage
-    assert.ok(_storage instanceof ItoStorage, '_storage is required')
+  static async load (storage: Storage|string, pubkey: Key): Promise<Contract> {
+    const _storage: Storage = (typeof storage === 'string') ? new Storage(storage) : storage
+    assert.ok(_storage instanceof Storage, '_storage is required')
     pubkey = keyToBuf(pubkey) // keyToBuf() will validate the key
 
     const indexCore = await _storage.getHypercore(pubkey)
-    const index = new ItoIndexLog(indexCore)
-
-    const contract = new ItoContract(_storage, index) 
-    contract.opening = true
-
+    const index = new IndexLog(indexCore)
+    const contract = new Contract(_storage, index) 
     const oplogs = await contract.index.listOplogs()
-    contract.oplogs = await Promise.all(oplogs.map(async (oplog) => {
-      return new ItoOpLog(await _storage.getHypercore(oplog.pubkey), oplog.id)
+    await Promise.all(oplogs.map(async (oplog) => {
+      contract.oplogs.add(new OpLog(await _storage.getHypercore(oplog.pubkey), oplog.executor))
     }))
-    await contract._readOplogIdCounter()
+    await contract.open()
     
-    await contract._createVM()
-    if (contract.isExecutor) {
-      contract.executor = new ItoContractExecutor(contract)
-      await contract.executor.open()
-    }
-    
-    contract.opening = false
-    contract.opened = true
     return contract
   }
 
-  async close () {
-    if (this.closing || this.closed) return
-    this.closing = true
+  async _open () {
+    await this._createVM()
+    if (this.isExecutor) {
+      this.executor = new ContractExecutor(this)
+      await this.executor.open()
+    }
+  }
 
+  async _close () {
     this.executor?.close()
     this.vm?.close()
     await Promise.all([
       this.index.close(),
-      ...this.oplogs.map(log => log.close())
+      this.oplogs.removeAll()
     ])
-
-    this.closing = false
-    this.opened = false
-    this.closed = true
   }
 
   // networking
@@ -170,20 +157,20 @@ export class ItoContract extends EventEmitter {
   // transactions
   // =
 
-  async call (methodName: string, params: Record<string, any>): Promise<ItoTransaction> {
+  async call (methodName: string, params: Record<string, any>): Promise<Transaction> {
     if (methodName === 'process' || methodName === 'apply') {
       throw new Error(`Cannot call "${methodName}" directly`)
     }
     if (this.vm) {
       const res = await this.vm.contractCall(methodName, params)
-      let ops: ItoOperation[] = []
+      let ops: Operation[] = []
       if (res.ops?.length) {
         if (!this.myOplog) {
           throw new Error('Unable to execute transaction: not a writer')
         }
         ops = await this.myOplog.dangerousAppend(res.ops)
       }
-      return new ItoTransaction(this, res.result, ops)  
+      return new Transaction(this, res.result, ops)  
     } else {
       throw new Error('Contract VM not instantiated')
     }
@@ -211,7 +198,7 @@ export class ItoContract extends EventEmitter {
     }*/
   }
 
-  async verifyOp (op: ItoOperation) {
+  async verifyOp (op: Operation) {
     await op.verifyInclusion()
     throw new Error('TODO')
   }
@@ -229,7 +216,7 @@ export class ItoContract extends EventEmitter {
 
   private async _createVM () {
     const source = await this._readContractCode()
-    this.vm = new ItoVM(this, source)
+    this.vm = new VM(this, source)
     this.vm.on('error', (evt: {error: string}) => {
       this.emit('error', new AggregateError([new Error(evt.error)], 'The contract experienced a runtime error'))
       this.close()
@@ -244,76 +231,93 @@ export class ItoContract extends EventEmitter {
     assert.ok(this.index.length === 0, 'Cannot write init blocks: index log already has entries')
     assert.ok(typeof source === 'string', 'Contract source must be provided')
     assert.ok(this.oplogs.length > 0, 'Oplogs must be created before writing init blocks')
-    const batch: ItoIndexBatchEntry[] = [
+    const batch: IndexBatchEntry[] = [
       {type: 'put', path: CONTRACT_SOURCE_PATH, value: source}
     ]
     for (const oplog of this.oplogs) {
       const pubkey = keyToBuf(oplog.pubkey)
       batch.push({
         type: 'put',
-        path: genParticipantPath(oplog.id),
-        value: {pubkey, active: true}
+        path: genParticipantPath(oplog.pubkey),
+        value: {pubkey, active: true, executor: oplog.isExecutor}
       })
     }
     batch.push({type: 'put', path: GENESIS_ACK_PATH, value: {}})
     await this.index.dangerousBatch(batch)
   }
 
-  // helpers
-  // =
-
-  async _readOplogIdCounter (): Promise<void> {
-    const entries = await this.index.list(PARTICIPANT_PATH_PREFIX)
-    this._oplogIdCounter = entries.map(entry => Number(entry.name)).reduce((acc, v) => Math.max(acc, v), 0) + 1
+  _mapApplyActionsToBatch (actions: ApplyActions): IndexBatchEntry[] {
+    return Object.entries(actions)
+      .map(([path, action]): IndexBatchEntry => {
+        if (path.startsWith('/.sys/')) {
+          if (action.type === 'addOplog') {
+            const pubkeyBuf = keyToBuf(action.value.pubkey)
+            const oplog = this.oplogs.find(log => log.pubkey.equals(pubkeyBuf))
+            if (oplog?.isExecutor) throw new Error('Unable to modify the executor oplog')
+            return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: true, executor: false}}
+          } else if (action.type === 'removeOplog') {
+            const pubkeyBuf = keyToBuf(action.value.pubkey)
+            const oplog = this.oplogs.find(log => log.pubkey.equals(pubkeyBuf))
+            if (oplog?.isExecutor) throw new Error('Unable to remove the executor oplog')
+            return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: false, executor: false}}
+          } else if (action.type === 'setContractSource') {
+            return {type: 'put', path: CONTRACT_SOURCE_PATH, value: action.value.code}
+          }
+        }
+        return {path, type: action.type, value: action.value}
+      })
+      .sort((a, b) => a.path.localeCompare(b.path))
   }
 
-  _createAddOplogBatchAction (pubkey: Key): ItoIndexBatchEntry {
-    const pubkeyBuf = keyToBuf(pubkey)
-    return {type: 'put', path: genParticipantPath(this._oplogIdCounter++), value: {pubkey: pubkeyBuf, active: true}}
-  }
+  async _executeApplyBatch (batch: IndexBatchEntry[]): Promise<void> {
+    if (this.closing || this.closed) return
 
-  _createRemoveOplogBatchAction (pubkey: Key): ItoIndexBatchEntry|undefined {
-    const pubkeyBuf = keyToBuf(pubkey)
-    const oplog = this.oplogs.find(oplog => oplog.pubkey.equals(pubkeyBuf))
-    if (!oplog) return undefined
-    return {type: 'put', path: genParticipantPath(oplog.id), value: {pubkey: pubkeyBuf, active: false}}
+    // complete writes
+    await this.index.dangerousBatch(batch)
+
+    // react to config changes
+    for (const batchEntry of batch) {
+      if (batchEntry.path === CONTRACT_SOURCE_PATH) {
+        await this._onContractCodeChange(batchEntry.value)
+      } else if (batchEntry.path.startsWith(PARTICIPANT_PATH_PREFIX)) {
+        await this._onOplogChange(batchEntry.value)
+      }
+    }
   }
 
   async _onContractCodeChange (code: string) {
     throw new Error('TODO')
   }
 
-  async _onOplogChange (id: number, entry: ItoSchemaInput): Promise<void> {
+  async _onOplogChange (entry: ItoSchemaInput): Promise<void> {
+    // console.log('_onOplogChange', entry)
     const pubkeyBuf = entry.pubkey
     const oplogIndex = this.oplogs.findIndex(oplog => oplog.pubkey.equals(pubkeyBuf))
     if (oplogIndex === -1 && entry.active) {
-      const core = await this.storage.getHypercore(pubkeyBuf)
-      this.oplogs.push(new ItoOpLog(core, id))
+      await this.oplogs.add(new OpLog(await this.storage.getHypercore(pubkeyBuf), false))
     } else if (oplogIndex !== -1 && !entry.active) {
-      const oplog = this.oplogs[oplogIndex]
-      oplog.close()
-      this.oplogs.splice(oplogIndex, 1)
-      this.executor?.unwatchOpLog(oplog)
+      await this.oplogs.removeAt(oplogIndex)
     }
   }
 
-  async _fetchOpAck (op: ItoOperation): Promise<ItoAck|undefined> {
-    const oplogId = op.oplog.id
+  // helpers
+  // =
+
+  async _fetchOpAck (op: Operation): Promise<Ack|undefined> {
+    if (this.closing || this.closed) return
+    const pubkey = op.oplog.pubkey
     const seq = op.proof.seq
-    const ack = (await this.index.get(genAckPath(oplogId, seq)))?.value
-    return ack ? (ack as ItoAck) : undefined
+    const ack = (await this.index.get(genAckPath(pubkey, seq)))?.value
+    return ack ? (ack as Ack) : undefined
   }
 
-  async _fetchOpMutations (op: ItoOperation): Promise<ItoOperationResults|undefined> {
-    for (let i = 0; i < this.index.core.length; i++) {
-      // console.log(parseHyperbeeMessage(i, await this.index.core.get(i)))
-    }
-
-    const oplogId = op.oplog.id
+  async _fetchOpMutations (op: Operation): Promise<OperationResults|undefined> {
+    if (this.closing || this.closed) return
+    const pubkey = op.oplog.pubkey
     const seq = op.proof.seq
-    const ackEntry = await this.index.get(genAckPath(oplogId, seq))
+    const ackEntry = await this.index.get(genAckPath(pubkey, seq))
     if (ackEntry && ackEntry.seq) {
-      const results: ItoOperationResults = Object.assign(ackEntry.value, {mutations: []})
+      const results: OperationResults = Object.assign(ackEntry.value, {mutations: []})
       if (ackEntry.value.success) {
         for (let i = ackEntry.seq + 1; i <= ackEntry.seq + results.numMutations; i++) {
           results.mutations.push(parseHyperbeeMessage(i, await this.index.core.get(i)))

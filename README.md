@@ -30,7 +30,7 @@ A blockchain-free smart contract runtime using secure ledgers. [Read the white p
   - [ ] Log replay
 - [ ] Implement monitoring
 - [ ] Additional tests
-  - [ ] Participant changes
+  - [x] Participant changes
   - [ ] Contract changes
 - [ ] Create CLI
 

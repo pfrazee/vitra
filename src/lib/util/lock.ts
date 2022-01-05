@@ -10,7 +10,7 @@ Copyright (c) 2015-present James Ide
 /**
  * A mutex lock for coordination across async functions
  */
- class AwaitLock {
+ export class AwaitLock {
   _acquired: boolean
   _waitingResolvers: ((value: unknown) => void)[]
 

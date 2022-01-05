@@ -6,26 +6,25 @@ import Hypercore from 'hypercore'
 import Hyperbee from 'hyperbee'
 import * as msgpackr from 'msgpackr'
 import { Readable } from 'streamx'
-import { ItoOperation } from './op.js'
+import { Operation } from './transactions.js'
 import {
-  ItoOpLogEntry,
-  ItoIndexLogListOpts,
-  ItoIndexLogEntry,
-  ItoLogInclusionProof,
-  ItoIndexBatchEntry,
+  OpLogEntry,
+  IndexLogListOpts,
+  IndexLogEntry,
+  LogInclusionProof,
+  IndexBatchEntry,
   Key,
   keyToStr
 } from '../types.js'
 import {
   PARTICIPANT_PATH_PREFIX,
 } from '../schemas.js'
-import { beeShallowList, pathToBeekey } from './hyper.js'
-import { ItoStorage } from './storage.js'
+import { beeShallowList, pathToBeekey } from './util/hyper.js'
+import { Storage } from './storage.js'
 // @ts-ignore no types available -prf
 import * as c from 'compact-encoding'
 
-
-export class ItoLog extends EventEmitter {
+export class Log extends EventEmitter {
   core: Hypercore
 
   constructor (core: Hypercore) {
@@ -56,15 +55,22 @@ export class ItoLog extends EventEmitter {
     return this.core.writable
   }
 
-  close () {
-    this.core.close()
+  async open () {
+  }
+
+  async close () {
+    // return this.core.close()
+  }
+
+  equals (log: Log) {
+    return this.pubkey.equals(log.pubkey)
   }
 
   async syncLatest () {
     throw new Error('TODO')
   }
 
-  async getBlockInclusionProof (seq: number): Promise<ItoLogInclusionProof> {
+  async getBlockInclusionProof (seq: number): Promise<LogInclusionProof> {
     if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
     const tree = this.core.core.tree
     if (tree.fork !== 0) throw new Error('Tree has been truncated (forked) and is no longer usable')
@@ -76,7 +82,7 @@ export class ItoLog extends EventEmitter {
     return {seq, hash, signature}
   }
 
-  async verifyBlockInclusionProof (proof: ItoLogInclusionProof): Promise<void> {
+  async verifyBlockInclusionProof (proof: LogInclusionProof): Promise<void> {
     if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
     const tree = this.core.core.tree
 
@@ -98,17 +104,29 @@ export class ItoLog extends EventEmitter {
   }
 }
 
-export class ItoOpLog extends ItoLog {
-  constructor (core: Hypercore, public id: number) {
+export class OpLog extends Log {
+  constructor (core: Hypercore, public isExecutor: boolean) {
     super(core)
   }
 
-  static async create (storage: ItoStorage, id: number): Promise<ItoOpLog> {
-    const core = await storage.createHypercore()
-    return new ItoOpLog(core, id)
+  [Symbol.for('nodejs.util.inspect.custom')] (depth: number, opts: {indentationLvl: number, stylize: Function}) {
+    let indent = ''
+    if (opts.indentationLvl) {
+      while (indent.length < opts.indentationLvl) indent += ' '
+    }
+    return this.constructor.name + '(\n' +
+      indent + '  key: ' + opts.stylize(keyToStr(this.pubkey), 'string') + '\n' +
+      indent + '  opened: ' + opts.stylize(this.core.opened, 'boolean') + '\n' +
+      indent + '  executor: ' + opts.stylize(this.isExecutor, 'boolean') + '\n' +
+      indent + ')'
   }
 
-  async get (seq: number): Promise<ItoOpLogEntry> {
+  static async create (storage: Storage, isExecutor: boolean): Promise<OpLog> {
+    const core = await storage.createHypercore()
+    return new OpLog(core, isExecutor)
+  }
+
+  async get (seq: number): Promise<OpLogEntry> {
     const value = await this.core.get(seq)
     return {
       seq,
@@ -116,20 +134,20 @@ export class ItoOpLog extends ItoLog {
     }
   }
 
-  async dangerousAppend (values: any[]): Promise<ItoOperation[]> {
+  async dangerousAppend (values: any[]): Promise<Operation[]> {
     const ops = []
     const baseSeq = await this.core.append(values.map(v => msgpackr.pack(v)))
     for (let i = 0; i < values.length; i++) {
       const seq = baseSeq + i
       const value = values[i]
       const proof = await this.getBlockInclusionProof(seq)
-      ops.push(new ItoOperation(this, proof, value))
+      ops.push(new Operation(this, proof, value))
     }
     return ops
   }
 }
 
-export class ItoIndexLog extends ItoLog {
+export class IndexLog extends Log {
   bee: Hyperbee
 
   constructor (core: Hypercore) {
@@ -144,12 +162,12 @@ export class ItoIndexLog extends ItoLog {
     })
   }
 
-  static async create (storage: ItoStorage): Promise<ItoIndexLog> {
+  static async create (storage: Storage): Promise<IndexLog> {
     const core = await storage.createHypercore()
-    return new ItoIndexLog(core)
+    return new IndexLog(core)
   }
 
-  async list (prefix = '/', opts?: ItoIndexLogListOpts): Promise<ItoIndexLogEntry[]> {
+  async list (prefix = '/', opts?: IndexLogListOpts): Promise<IndexLogEntry[]> {
     let arr = await beeShallowList(this.bee, prefix.split('/').filter(Boolean))
     if (opts?.reverse) arr.reverse()
     if (opts?.offset && opts?.limit) {
@@ -162,7 +180,7 @@ export class ItoIndexLog extends ItoLog {
     return arr
   }
 
-  async get (path: string): Promise<ItoIndexLogEntry|undefined> {
+  async get (path: string): Promise<IndexLogEntry|undefined> {
     const entry = await this.bee.get(pathToBeekey(path))
     if (!entry) return undefined
     const pathSegs = entry.key.split(`\x00`).filter(Boolean)
@@ -175,7 +193,7 @@ export class ItoIndexLog extends ItoLog {
     }
   }
 
-  async dangerousBatch (batch: ItoIndexBatchEntry[]) {
+  async dangerousBatch (batch: IndexBatchEntry[]) {
     if (!this.bee) throw new Error('Hyperbee not initialized')
     const b = this.bee.batch()
     for (const entry of batch) {
@@ -193,17 +211,15 @@ export class ItoIndexLog extends ItoLog {
     await b.flush()
   }
 
-  async listOplogs (): Promise<{id: number, pubkey: Key}[]> {
+  async listOplogs (): Promise<{pubkey: Key, executor: boolean}[]> {
     const entries = await this.list(PARTICIPANT_PATH_PREFIX)
     const oplogs = []
     for (const entry of entries) {
       try {
         if (!entry.value.active) continue
-        const id = Number(entry.name)
-        if (isNaN(id)) throw new Error(`Invalid ID: ${id}`)
         oplogs.push({
-          id,
-          pubkey: entry.value.pubkey
+          pubkey: entry.value.pubkey,
+          executor: entry.value.executor
         })
       } catch (e: any) {
         this.emit('warning', new AggregateError([e], `Invalid entry under ${PARTICIPANT_PATH_PREFIX}, name=${entry.name}`))
@@ -218,7 +234,7 @@ export class ReadStream extends Readable {
   end: number
   snapshot: boolean
   live: boolean
-  constructor (public log: ItoLog, opts: {start?: number, end?: number, snapshot?: boolean, live?: boolean} = {}) {
+  constructor (public log: Log, opts: {start?: number, end?: number, snapshot?: boolean, live?: boolean} = {}) {
     super()
     this.start = opts.start || 0
     this.end = typeof opts.end === 'number' ? opts.end : -1
@@ -248,8 +264,12 @@ export class ReadStream extends Readable {
     }
 
     const nextSeq = this.start++
-    const nextValue = await this.log.core.get(nextSeq)
-    this.push({seq: nextSeq, value: nextValue})
+    try {
+      const nextValue = await this.log.core.get(nextSeq)
+      this.push({seq: nextSeq, value: nextValue})
+    } catch (e) {
+      this.push(null)
+    }
   }
 }
 

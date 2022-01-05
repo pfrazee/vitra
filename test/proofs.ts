@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { ItoStorageInMemory, ItoContract } from '../src/index.js'
+import { StorageInMemory, Contract } from '../src/index.js'
 
 ava.skip('fraud proof: oplog broke append-only', async t => {
 })

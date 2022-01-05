@@ -1,9 +1,18 @@
-import { ItoContract } from './contract.js'
-import { ItoOperation } from './op.js'
-import { ItoOperationResults } from '../types.js'
+import { Contract } from './contract.js'
+import { OpLog } from './log.js'
+import { LogInclusionProof } from '../types.js'
 
-export class ItoTransaction {
-  constructor (public contract: ItoContract, public response: any, public ops: ItoOperation[]) {
+export class Operation {
+  constructor (public oplog: OpLog, public proof: LogInclusionProof, public value: any) {
+  }
+
+  async verifyInclusion () {
+    await this.oplog.verifyBlockInclusionProof(this.proof)
+  }
+}
+
+export class Transaction {
+  constructor (public contract: Contract, public response: any, public ops: Operation[]) {
   }
 
   async verifyInclusion () {

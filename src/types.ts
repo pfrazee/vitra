@@ -1,20 +1,20 @@
 export type Key = string|Buffer
 
-export interface ItoContractCode {
+export interface ContractCode {
   source: string
 }
 
-export interface ItoContractCreateOpts {
-  code: ItoContractCode
+export interface ContractCreateOpts {
+  code: ContractCode
 }
 
-export interface ItoLogInclusionProof {
+export interface LogInclusionProof {
   seq: number
   hash: Buffer
   signature: Buffer
 }
 
-export interface ItoAck {
+export interface Ack {
   success: boolean|undefined
   error: string|undefined
   origin: string
@@ -24,28 +24,28 @@ export interface ItoAck {
   numMutations: number
 }
 
-export interface ItoOperationResults extends ItoAck {
+export interface OperationResults extends Ack {
   mutations: any[]
 }
 
-export interface ItoIndexBatchEntry {
+export interface IndexBatchEntry {
   type: string
   path: string
   value?: any
 }
 
-export interface ItoOpLogEntry {
+export interface OpLogEntry {
   seq: number
   value: any
 }
 
-export interface ItoIndexLogListOpts {
+export interface IndexLogListOpts {
   reverse?: boolean
   offset?: number
   limit?: number
 }
 
-export interface ItoIndexLogEntry {
+export interface IndexLogEntry {
   container: boolean
   seq: number|undefined
   path: string
@@ -57,6 +57,8 @@ export interface BaseApiCallRes {
   response: any
   ops: any[]
 }
+
+export type ApplyActions = Record<string, {type: string, value?: any}>
 
 export function keyToBuf (key: Key) {
   if (Buffer.isBuffer(key)) {

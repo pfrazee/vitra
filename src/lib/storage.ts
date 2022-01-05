@@ -11,7 +11,7 @@ interface StoredKeyPair {
   secretKey: Buffer|undefined
 }
 
-export class ItoStorage {
+export class Storage {
   constructor (public basePath: string) {
     this.basePath = path.resolve(basePath)
   }
@@ -58,7 +58,7 @@ export class ItoStorage {
   }
 }
 
-export class ItoStorageInMemory extends ItoStorage {
+export class StorageInMemory extends Storage {
   private loadedCores: Map<string, Hypercore> = new Map()
   constructor () {
     super('')

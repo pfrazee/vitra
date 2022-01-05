@@ -3,13 +3,13 @@ import assert from 'assert'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { Sandbox as ConfineSandbox } from 'confine-sandbox'
-import { ItoContract } from './contract.js'
+import { Contract } from './contract.js'
 import { keyToStr } from '../types.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const NODE_MODULES_PATH = path.join(__dirname, '..', '..', 'node_modules')
 
-export class ItoVM extends EventEmitter {
+export class VM extends EventEmitter {
   opening = false
   opened = false
   closing = false
@@ -19,7 +19,7 @@ export class ItoVM extends EventEmitter {
   private sandbox: ConfineSandbox|undefined
   private cid: number|undefined
 
-  constructor (public contract: ItoContract, public source: string) {
+  constructor (public contract: Contract, public source: string) {
     super()
   }
 

@@ -1,8 +1,8 @@
 import ava from 'ava'
-import { ItoStorageInMemory, ItoIndexLog, ItoIndexLogEntry } from '../src/index.js'
+import { StorageInMemory, IndexLog, IndexLogEntry } from '../src/index.js'
 
 ava('batch modifications', async t => {
-  const idx = await ItoIndexLog.create(new ItoStorageInMemory())
+  const idx = await IndexLog.create(new StorageInMemory())
   await idx.dangerousBatch([
     {type: 'put', path: '/foo', value: 1},
     {type: 'put', path: 'bar', value: 2},
@@ -15,7 +15,7 @@ ava('batch modifications', async t => {
 })
 
 ava('list', async t => {
-  const testOutput = (res: ItoIndexLogEntry[], desc: string[]) => {
+  const testOutput = (res: IndexLogEntry[], desc: string[]) => {
     t.is(res.length, desc.length)
     for (let i = 0; i < res.length; i++) {
       const itemDesc = desc[i]
@@ -28,7 +28,7 @@ ava('list', async t => {
       }
     }
   }
-  const idx = await ItoIndexLog.create(new ItoStorageInMemory())
+  const idx = await IndexLog.create(new StorageInMemory())
   await idx.dangerousBatch([
     {type: 'put', path: '/a', value: '/a'},
     {type: 'put', path: '/a/a', value: '/a/a'},
@@ -67,7 +67,7 @@ ava('list', async t => {
 })
 
 ava('get', async t => {
-  const testOutput = (res: ItoIndexLogEntry|undefined, name: string, path: string) => {
+  const testOutput = (res: IndexLogEntry|undefined, name: string, path: string) => {
     t.truthy(res)
     if (res) {
       t.is(res.name, name)
@@ -75,7 +75,7 @@ ava('get', async t => {
       t.deepEqual(res.value, path)
     }
   }
-  const idx = await ItoIndexLog.create(new ItoStorageInMemory())
+  const idx = await IndexLog.create(new StorageInMemory())
   await idx.dangerousBatch([
     {type: 'put', path: '/a', value: '/a'},
     {type: 'put', path: '/a/a', value: '/a/a'},

@@ -1,98 +1,100 @@
-import EventEmitter from 'events'
+import { Resource } from './util/resource.js'
 // @ts-ignore no types available -prf
 import assert from 'assert'
 // @ts-ignore no types available -prf
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as msgpackr from 'msgpackr'
-import {
-  ItoAck,
-  ItoIndexBatchEntry,
-  keyToStr
-} from '../types.js'
-import {
-  CONTRACT_SOURCE_PATH,
-  PARTICIPANT_PATH_PREFIX,
-  ACK_PATH_PREFIX,
-  genAckPath
-} from '../schemas.js'
-import { ItoContract } from './contract.js'
-import { ItoOpLog, ReadStream } from './log.js'
+import { Ack, IndexBatchEntry, keyToStr } from '../types.js'
+import { ACK_PATH_PREFIX, genAckPath } from '../schemas.js'
+import { Contract } from './contract.js'
+import { OpLog, ReadStream } from './log.js'
 
 const OPLOG_WATCH_RETRY_TIMEOUT = 5e3
 
-type ActionValue = {type: string, value?: any}
+interface WatchEvtDetails {
+  oplog: OpLog
+  seq?: number
+  op?: any
+}
 
-export class ItoContractExecutor extends EventEmitter {
-  opening = false
-  opened = false
-  closing = false
-  closed = false
-
+export class ContractExecutor extends Resource {
+  private _oplogsWatcher: AsyncGenerator<[string, OpLog]>|undefined
   private _lastExecutedSeqs: Map<string, number> = new Map()
   private _oplogReadStreams: Map<string, ReadStream> = new Map()
-  constructor (public contract: ItoContract) {
+  constructor (public contract: Contract) {
     super()
   }
 
   // public api
   // =
 
-  async open () {
-    assert(!this.closing && !this.closed, 'Executor already closed')
-    if (this.opened || this.opening) return
-    this.opening = true
+  [Symbol.for('nodejs.util.inspect.custom')] (depth: number, opts: {indentationLvl: number, stylize: Function}) {
+    let indent = ''
+    if (opts.indentationLvl) {
+      while (indent.length < opts.indentationLvl) indent += ' '
+    }
+    return this.constructor.name + '(\n' +
+      indent + '  key: ' + opts.stylize(keyToStr(this.contract.pubkey), 'string') + '\n' +
+      indent + '  opened: ' + opts.stylize(this.opened, 'boolean') + '\n' +
+      indent + ')'
+  }
+
+  async _open () {
     if (!this.contract.isExecutor) {
       throw new Error('Not the executor')
     }
     for (const log of this.contract.oplogs) {
-      await this.watchOpLog(log)
+      this.watchOpLog(log)
     }
-    this.opening = false
-    this.opened = true
+    ;(async () => {
+      this._oplogsWatcher = this.contract.oplogs.watch(false)
+      for await (const [evt, log] of this._oplogsWatcher) {
+        if (evt === 'added') this.watchOpLog(log)
+        if (evt === 'removed') this.unwatchOpLog(log)
+      }
+    })()
   }
 
-  close () {
-    assert(this.opened, 'Executor not opened')
-    if (this.closing || this.closed) return
-    this.closing = true
+  async _close () {
+    this._oplogsWatcher?.return(true)
     for (const readStream of this._oplogReadStreams.values()) {
       readStream.destroy()
     }
-    this.closing = false
-    this.opened = false
-    this.closed = true
+  }
+
+  async* watch (): AsyncGenerator<[string, WatchEvtDetails]> {
+    let emit: Function|undefined
+    const onAdd = (oplog: OpLog) => emit?.(['added', {oplog}])
+    const onRemove = (oplog: OpLog) => emit?.(['removed', {oplog}])
+    const onOpExecuted = (oplog: OpLog, seq: number, op: any) => emit?.(['op-executed', {oplog, seq, op}])
+    this.contract.oplogs.on('added', onAdd)
+    this.contract.oplogs.on('removed', onRemove)
+    this.on('op-executed', onOpExecuted)
+    try {
+      while (true) {
+        yield await new Promise(resolve => { emit = resolve })
+      }
+    } finally {
+      this.contract.oplogs.removeListener('added', onAdd)
+      this.contract.oplogs.removeListener('removed', onRemove)
+      this.removeListener('op-executed', onOpExecuted)
+    }
   }
 
   async sync () {
     await Promise.all(this.contract.oplogs.map(oplog => oplog.core.update()))
-    const remaining: Map<string, number> = new Map()
-    for (const oplog of this.contract.oplogs) {
-      const current = await this._getLastExecutedSeq(oplog, -1)
-      const target = oplog.length - 1
-      if (current < target) {
-        remaining.set(keyToStr(oplog.pubkey), target)
+    const state = this._captureLogSeqs()
+    if (this._hasExecutedAllSeqs(state)) return
+    for await (const [evt, info] of this.watch()) {
+      const keystr = keyToStr(info.oplog.pubkey)
+      if (evt === 'removed') {
+        state.delete(keystr)
       }
+      if (this._hasExecutedAllSeqs(state)) return
     }
-    if (remaining.size === 0) {
-      return
-    }
-    return new Promise(resolve => {
-      const onEmit = (log: ItoOpLog, seq: number) => {
-        const keystr = keyToStr(log.pubkey)
-        const target = remaining.get(keystr)
-        if (typeof target !== 'undefined' && target <= seq) {
-          remaining.delete(keystr)
-        }
-        if (remaining.size === 0) {
-          this.removeListener('op-executed', onEmit)
-          resolve(undefined)
-        }
-      }
-      this.on('op-executed', onEmit)
-    })
   }
 
-  async watchOpLog (log: ItoOpLog) {
+  async watchOpLog (log: OpLog) {
     const keystr = keyToStr(log.pubkey)
     const release = await this.contract.lock(`watchOpLog:${keystr}`)
     try {
@@ -121,8 +123,9 @@ export class ItoContractExecutor extends EventEmitter {
     }
   }
 
-  unwatchOpLog (log: ItoOpLog) {
+  unwatchOpLog (log: OpLog) {
     const keystr = keyToStr(log.pubkey)
+    this._lastExecutedSeqs.delete(keystr)
     const stream = this._oplogReadStreams.get(keystr)
     if (stream) {
       stream.destroy()
@@ -133,29 +136,45 @@ export class ItoContractExecutor extends EventEmitter {
   // private methods
   // =
 
-  private async _readLastExecutedSeq (oplog: ItoOpLog) {
+  private async _readLastExecutedSeq (oplog: OpLog) {
     let seq = -1
-    const entries = await this.contract.index.list(ACK_PATH_PREFIX)
+    const keystr = keyToStr(oplog.pubkey)
+    const entries = await this.contract.index.list(`${ACK_PATH_PREFIX}${keystr}`)
     for (const entry of entries) {
-      if (entry.name.startsWith(`${oplog.id}:`)) {
-        seq = Math.max(Number(entry.name.split(':')[1]), seq)
-      }
+      seq = Math.max(Number(entry.name), seq)
     }
     if (seq !== -1) this._putLastExecutedSeq(oplog, seq)
   }
 
-  private _getLastExecutedSeq (oplog: ItoOpLog, fallback = 0): number {
+  private _getLastExecutedSeq (oplog: OpLog, fallback = 0): number {
     return this._lastExecutedSeqs.get(keyToStr(oplog.pubkey)) || fallback
   }
 
-  private _putLastExecutedSeq (oplog: ItoOpLog, seq: number) {
+  private _putLastExecutedSeq (oplog: OpLog, seq: number) {
     this._lastExecutedSeqs.set(keyToStr(oplog.pubkey), seq)
   }
 
-  private async _executeOp (log: ItoOpLog, seq: number, opValue: any) {
+  private _captureLogSeqs (): Map<string, number> {
+    const seqs = new Map()
+    for (const log of this.contract.oplogs) seqs.set(keyToStr(log.pubkey), log.length - 1)
+    return seqs
+  }
+
+  private _hasExecutedAllSeqs (seqs: Map<string, number>): boolean {
+    for (const [pubkey, seq] of seqs.entries()) {
+      const executedSeq = this._lastExecutedSeqs.has(pubkey) ? (this._lastExecutedSeqs.get(pubkey) || 0) : -1
+      if (executedSeq < seq) return false
+    }
+    return true
+  }
+
+  private async _executeOp (log: OpLog, seq: number, opValue: any) {
+    const assertStillOpen = () => assert(!this.contract.closing && !this.contract.closed, 'Contract closed')
+
     const release = await this.contract.lock('_executeOp')
     try {
       assert(!!this.contract.vm, 'Contract VM not initialized')
+      assertStillOpen()
       if (!this.contract.isOplogParticipant(log)) {
         console.error('Skipping op from non-participant')
         console.error('  Log:', log)
@@ -165,6 +184,7 @@ export class ItoContractExecutor extends EventEmitter {
 
       // enter restricted mode
       await this.contract.vm.restrict()
+      assertStillOpen()
 
       // call process() if it exists
       let metadata = undefined
@@ -176,9 +196,10 @@ export class ItoContractExecutor extends EventEmitter {
           console.debug('Failed to call process()', e)
         }
       }
+      assertStillOpen()
 
       // create ack object
-      const ack: ItoAck = {
+      const ack: Ack = {
         success: undefined,
         error: undefined,
         origin: keyToStr(log.pubkey),
@@ -190,33 +211,21 @@ export class ItoContractExecutor extends EventEmitter {
 
       // call apply()
       let applySuccess = undefined
-      let batch: ItoIndexBatchEntry[] = []
+      let batch: IndexBatchEntry[] = []
       let applyError
       try {
         const applyRes = await this.contract.vm.contractApply(opValue, ack)
-        batch = (Object.entries(applyRes.actions as ActionValue[])
-          .map(([path, action]): ItoIndexBatchEntry|undefined => {
-            if (path.startsWith('/.sys/')) {
-              if (action.type === 'addOplog') {
-                return this.contract._createAddOplogBatchAction(action.value.pubkey)
-              } else if (action.type === 'removeOplog') {
-                return this.contract._createRemoveOplogBatchAction(action.value.pubkey)
-              } else if (action.type === 'setContractSource') {
-                return {type: 'put', path: CONTRACT_SOURCE_PATH, value: action.value.code}
-              }
-            }
-            return {path, type: action.type, value: action.value}
-          })
-          .filter(Boolean) as ItoIndexBatchEntry[])
-          .sort((a, b) => a.path.localeCompare(b.path))
+        batch = this.contract._mapApplyActionsToBatch(applyRes.actions)
         applySuccess = true
       } catch (e: any) {
         applyError = e
         applySuccess = false
       }
+      assertStillOpen()
 
       // leave restricted mode
       await this.contract.vm.unrestrict()
+      assertStillOpen()
 
       // write the result
       if (applySuccess) {
@@ -229,20 +238,11 @@ export class ItoContractExecutor extends EventEmitter {
       }
       batch.unshift({
         type: 'put',
-        path: genAckPath(log.id, seq),
+        path: genAckPath(log.pubkey, seq),
         value: ack
       })
-      await this.contract.index.dangerousBatch(batch)
+      await this.contract._executeApplyBatch(batch)
       this._putLastExecutedSeq(log, seq)
-
-      // react to config changes
-      for (const batchEntry of batch) {
-        if (batchEntry.path === CONTRACT_SOURCE_PATH) {
-          await this.contract._onContractCodeChange(batchEntry.value)
-        } else if (batchEntry.path.startsWith(PARTICIPANT_PATH_PREFIX)) {
-          await this.contract._onOplogChange(Number(batchEntry.path.slice(PARTICIPANT_PATH_PREFIX.length)), batchEntry.value)
-        }
-      }
 
       this.emit('op-executed', log, seq, opValue)
     } finally {

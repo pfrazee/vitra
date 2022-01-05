@@ -43,8 +43,8 @@ The output logs has a set of fixed entries:
 |Key|Usage|
 |-|-|
 |`.sys/contract/source`|The source code of the contract|
-|`.sys/inputs/{input-id}`|Declarations of input logs|
-|`.sys/acks/{input-id}:{seq}`|Acknowledgements of processed ops|
+|`.sys/inputs/{pubkey-hex}`|Declarations of input logs|
+|`.sys/acks/{pubkey-hex}/{seq}`|Acknowledgements of processed ops|
 
 Entries under `.sys/acks/` can not be modified by the contract.
 
