@@ -110,6 +110,7 @@ declare module 'hypercore' {
     append (block: any): Promise<any>
     registerExtension (name: string, handlers: HypercoreExtensionHandlers): HypercoreExtension
     sign (signable: Buffer): Buffer
+    on(evt: string, handler: Function)
   }
 
   export = Hypercore

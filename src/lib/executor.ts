@@ -12,6 +12,7 @@ import {
 import {
   CONTRACT_SOURCE_PATH,
   PARTICIPANT_PATH_PREFIX,
+  ACK_PATH_PREFIX,
   genAckPath
 } from '../schemas.js'
 import { ItoContract } from './contract.js'
@@ -36,7 +37,7 @@ export class ItoContractExecutor extends EventEmitter {
   // public api
   // =
 
-  open () {
+  async open () {
     assert(!this.closing && !this.closed, 'Executor already closed')
     if (this.opened || this.opening) return
     this.opening = true
@@ -44,7 +45,7 @@ export class ItoContractExecutor extends EventEmitter {
       throw new Error('Not the executor')
     }
     for (const log of this.contract.oplogs) {
-      this.watchOpLog(log)
+      await this.watchOpLog(log)
     }
     this.opening = false
     this.opened = true
@@ -66,7 +67,7 @@ export class ItoContractExecutor extends EventEmitter {
     await Promise.all(this.contract.oplogs.map(oplog => oplog.core.update()))
     const remaining: Map<string, number> = new Map()
     for (const oplog of this.contract.oplogs) {
-      const current = this._getLastExecutedSeq(oplog, -1)
+      const current = await this._getLastExecutedSeq(oplog, -1)
       const target = oplog.length - 1
       if (current < target) {
         remaining.set(keyToStr(oplog.pubkey), target)
@@ -91,27 +92,33 @@ export class ItoContractExecutor extends EventEmitter {
     })
   }
 
-  watchOpLog (log: ItoOpLog) {
+  async watchOpLog (log: ItoOpLog) {
     const keystr = keyToStr(log.pubkey)
-    if (this._oplogReadStreams.has(keystr)) return
+    const release = await this.contract.lock(`watchOpLog:${keystr}`)
+    try {
+      if (this._oplogReadStreams.has(keystr)) return
 
-    const start = this._getLastExecutedSeq(log)
-    const s = log.createLogReadStream({start, live: true})
-    this._oplogReadStreams.set(keystr, s)
+      await this._readLastExecutedSeq(log)
+      const start = this._getLastExecutedSeq(log)
+      const s = log.createLogReadStream({start, live: true})
+      this._oplogReadStreams.set(keystr, s)
 
-    s.on('data', (entry: {seq: number, value: any}) => this._executeOp(log, entry.seq, msgpackr.unpack(entry.value)))
-    s.on('error', (err: any) => {
-      this.contract.emit('error', new AggregateError([err], `An error occurred while reading oplog ${keystr}`))
-    })
-    s.on('close', () => {
-      this._oplogReadStreams.delete(keystr)
-      if (!this.contract.closing && !this.contract.closed && this.contract.isOplogParticipant(log)) {
-        // try again
-        setTimeout(() => {
-          this.watchOpLog(log)
-        }, OPLOG_WATCH_RETRY_TIMEOUT).unref()
-      }
-    })
+      s.on('data', (entry: {seq: number, value: any}) => this._executeOp(log, entry.seq, msgpackr.unpack(entry.value)))
+      s.on('error', (err: any) => {
+        this.contract.emit('error', new AggregateError([err], `An error occurred while reading oplog ${keystr}`))
+      })
+      s.on('close', () => {
+        this._oplogReadStreams.delete(keystr)
+        if (!this.contract.closing && !this.contract.closed && this.contract.isOplogParticipant(log)) {
+          // try again
+          setTimeout(() => {
+            this.watchOpLog(log)
+          }, OPLOG_WATCH_RETRY_TIMEOUT).unref()
+        }
+      })
+    } finally {
+      release()
+    }
   }
 
   unwatchOpLog (log: ItoOpLog) {
@@ -126,15 +133,22 @@ export class ItoContractExecutor extends EventEmitter {
   // private methods
   // =
 
+  private async _readLastExecutedSeq (oplog: ItoOpLog) {
+    let seq = -1
+    const entries = await this.contract.index.list(ACK_PATH_PREFIX)
+    for (const entry of entries) {
+      if (entry.name.startsWith(`${oplog.id}:`)) {
+        seq = Math.max(Number(entry.name.split(':')[1]), seq)
+      }
+    }
+    if (seq !== -1) this._putLastExecutedSeq(oplog, seq)
+  }
+
   private _getLastExecutedSeq (oplog: ItoOpLog, fallback = 0): number {
-    // TODO
-    console.debug('TODO: _getLastExecutedSeq()')
     return this._lastExecutedSeqs.get(keyToStr(oplog.pubkey)) || fallback
   }
 
   private _putLastExecutedSeq (oplog: ItoOpLog, seq: number) {
-    // TODO
-    console.debug('TODO: _putLastExecutedSeq()')
     this._lastExecutedSeqs.set(keyToStr(oplog.pubkey), seq)
   }
 
@@ -157,8 +171,10 @@ export class ItoContractExecutor extends EventEmitter {
       try {
         const processRes = await this.contract.vm.contractProcess(opValue)
         metadata = processRes.result
-      } catch (e) {
-        console.debug('Failed to call process()', e)
+      } catch (e: any) {
+        if (!e.toString().includes('Method not found: process')) {
+          console.debug('Failed to call process()', e)
+        }
       }
 
       // create ack object

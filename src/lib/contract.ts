@@ -13,7 +13,7 @@ import {
   CONTRACT_SOURCE_PATH,
   genParticipantPath,
   PARTICIPANT_PATH_PREFIX,
-  genAckPath,
+  GENESIS_ACK_PATH,
   ItoSchemaInput
 } from '../schemas.js'
 import { ItoStorage } from './storage.js'
@@ -101,7 +101,7 @@ export class ItoContract extends EventEmitter {
 
     await contract._createVM()
     contract.executor = new ItoContractExecutor(contract)
-    contract.executor.open()
+    await contract.executor.open()
 
     contract.opening = false
     contract.opened = true
@@ -128,7 +128,7 @@ export class ItoContract extends EventEmitter {
     await contract._createVM()
     if (contract.isExecutor) {
       contract.executor = new ItoContractExecutor(contract)
-      contract.executor.open()
+      await contract.executor.open()
     }
     
     contract.opening = false
@@ -251,7 +251,7 @@ export class ItoContract extends EventEmitter {
         value: {pubkey, active: true}
       })
     }
-    batch.push({type: 'put', path: genAckPath(0, 0), value: {}})
+    batch.push({type: 'put', path: GENESIS_ACK_PATH, value: {}})
     await this.index.dangerousBatch(batch)
   }
 

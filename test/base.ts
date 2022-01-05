@@ -45,3 +45,25 @@ ava('simple full contract run', async t => {
   t.deepEqual(res3.response, { seq: 5, container: false, name: 'foo', path: '/foo', value: 'hello world' })
   await contract.close()
 })
+
+ava('successfully runs loaded version', async t => {
+  const storage = new ItoStorageInMemory()
+  const contract = await ItoContract.create(storage, {
+    code: {source: SIMPLE_CONTRACT}
+  })
+  const pubkey = contract.pubkey
+  await contract.call('put', {path: '/foo', value: 'hello world'})
+  await contract.call('put', {path: '/bar', value: 'hello world'})
+  await contract.executor?.sync()
+
+  const contract2 = await ItoContract.load(storage, pubkey)
+  const res = await contract2.call('get', {path: '/foo'})
+  t.deepEqual(res.response, { seq: 5, container: false, name: 'foo', path: '/foo', value: 'hello world' })
+  await contract.call('put', {path: '/foo', value: 'hello world!!'})
+  await contract.executor?.sync()
+  const res2 = await contract2.call('get', {path: '/foo'})
+  t.deepEqual(res2.response, { seq: 11, container: false, name: 'foo', path: '/foo', value: 'hello world!!' })
+
+  await contract.close()
+  await contract2.close()
+})

@@ -66,7 +66,7 @@ The executor host initializes a contract with the following steps:
 - The Hyperbee header is written to the index log. (block 0)
 - The `.sys/contract/source` entry is written to the index log with the source code of the contract. (block 1)
 - Any number of `.sys/inputs/{key}` entries may be written.
-- An empty entry is written at `.sys/acks/0:0` indicating that initialization is complete and that all further entries will be dictated by the contract.
+- An empty entry is written at `.sys/acks/genesis` indicating that initialization is complete and that all further entries will be dictated by the contract.
 
 ### Operation processing flow (executor)
 
