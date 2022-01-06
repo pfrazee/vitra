@@ -175,7 +175,6 @@ export class ContractExecutor extends Resource {
 
     const release = await this.contract.lock('_executeOp')
     try {
-      assert(!!this.contract.vm, 'Contract VM not initialized')
       assertStillOpen()
       if (!this.contract.isOplogParticipant(log)) {
         console.error('Skipping op from non-participant')
@@ -183,23 +182,7 @@ export class ContractExecutor extends Resource {
         console.error('  Op:', opValue)
         return
       }
-
-      // enter restricted mode
-      await this.contract.vm.restrict()
-      assertStillOpen()
-
-      // call process() if it exists
-      let metadata = undefined
-      try {
-        const processRes = await this.contract.vm.contractProcess(opValue)
-        metadata = processRes.result
-      } catch (e: any) {
-        if (!e.toString().includes('Method not found: process')) {
-          console.debug('Failed to call process()', e)
-        }
-      }
-      assertStillOpen()
-
+      
       // create ack object
       const ack: AckSchema = {
         success: undefined,
@@ -207,27 +190,48 @@ export class ContractExecutor extends Resource {
         origin: keyToStr(log.pubkey),
         seq,
         ts: Date.now(),
-        metadata,
+        metadata: undefined,
         numMutations: 0
       }
-
-      // call apply()
       let applySuccess = undefined
       let batch: IndexBatchEntry[] = []
-      let applyError
-      try {
-        const applyRes = await this.contract.vm.contractApply(opValue, ack)
-        batch = this.contract._mapApplyActionsToBatch(applyRes.actions)
-        applySuccess = true
-      } catch (e: any) {
-        applyError = e
-        applySuccess = false
-      }
-      assertStillOpen()
+      let applyError: any
 
-      // leave restricted mode
-      await this.contract.vm.unrestrict()
-      assertStillOpen()
+      await this.contract.vmManager.use<void>(async () => {
+        assert(!!this.contract.vm, 'Contract VM not initialized')
+
+        // enter restricted mode
+        await this.contract.vm.restrict()
+        assertStillOpen()
+
+        // call process() if it exists
+        let metadata = undefined
+        try {
+          const processRes = await this.contract.vm.contractProcess(opValue)
+          metadata = processRes.result
+        } catch (e: any) {
+          if (!e.toString().includes('Method not found: process')) {
+            console.debug('Failed to call process()', e)
+          }
+        }
+        ack.metadata = metadata
+        assertStillOpen()
+
+        // call apply()
+        try {
+          const applyRes = await this.contract.vm.contractApply(opValue, ack)
+          batch = this.contract._mapApplyActionsToBatch(applyRes.actions)
+          applySuccess = true
+        } catch (e: any) {
+          applyError = e
+          applySuccess = false
+        }
+        assertStillOpen()
+
+        // leave restricted mode
+        await this.contract.vm.unrestrict()
+        assertStillOpen()
+      })
 
       // write the result
       if (applySuccess) {

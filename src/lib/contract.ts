@@ -1,5 +1,6 @@
 import { Resource } from './util/resource.js'
 import { ResourcesManager } from './util/resources-manager.js'
+import { UsageManager } from './util/usage-manager.js'
 // @ts-ignore no types available -prf
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as assert from 'assert'
@@ -35,6 +36,7 @@ export class Contract extends Resource {
   index: IndexLog
   oplogs: ResourcesManager<OpLog> = new ResourcesManager()
   vm: VM|undefined
+  vmManager = new UsageManager()
   executor: ContractExecutor|undefined
 
   private _lockPrefix = ''
@@ -162,19 +164,21 @@ export class Contract extends Resource {
       throw new Error(`Cannot call "${methodName}" directly`)
     }
     await this._createVMIfNeeded()
-    if (this.vm) {
-      const res = await this.vm.contractCall(methodName, params)
-      let ops: Operation[] = []
-      if (res.ops?.length) {
-        if (!this.myOplog) {
-          throw new Error('Unable to execute transaction: not a writer')
+    return await this.vmManager.use<Transaction>(async () => {
+      if (this.vm) {
+        const res = await this.vm.contractCall(methodName, params)
+        let ops: Operation[] = []
+        if (res.ops?.length) {
+          if (!this.myOplog) {
+            throw new Error('Unable to execute transaction: not a writer')
+          }
+          ops = await this.myOplog.dangerousAppend(res.ops)
         }
-        ops = await this.myOplog.dangerousAppend(res.ops)
+        return new Transaction(this, res.result, ops)  
+      } else {
+        throw new Error('Contract VM not instantiated')
       }
-      return new Transaction(this, res.result, ops)  
-    } else {
-      throw new Error('Contract VM not instantiated')
-    }
+    })
   }
 
   // monitoring
@@ -208,6 +212,7 @@ export class Contract extends Resource {
 
   async _createVMIfNeeded () {
     if (this.vm) return
+    await this.vmManager.pause()
     const source = await this._readContractCode()
     this.vm = new VM(this, source)
     this.vm.on('error', (evt: {error: string}) => {
@@ -215,6 +220,19 @@ export class Contract extends Resource {
       this.close()
     })
     await this.vm.open()
+    this.vmManager.unpause()
+  }
+
+  async _onContractCodeChange (source: string) {
+    await this.vmManager.pause()
+    if (this.vm) await this.vm.close()
+    this.vm = new VM(this, source)
+    this.vm.on('error', (evt: {error: string}) => {
+      this.emit('error', new AggregateError([new Error(evt.error)], 'The contract experienced a runtime error'))
+      this.close()
+    })
+    await this.vm.open()
+    this.vmManager.unpause()
   }
 
   // execution
@@ -275,10 +293,6 @@ export class Contract extends Resource {
         await this._onOplogChange(batchEntry.value)
       }
     }
-  }
-
-  async _onContractCodeChange (code: string) {
-    throw new Error('TODO')
   }
 
   async _onOplogChange (entry: InputSchema): Promise<void> {

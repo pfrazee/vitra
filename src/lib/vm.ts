@@ -1,4 +1,3 @@
-import EventEmitter from 'events'
 import assert from 'assert'
 import path from 'path'
 import { fileURLToPath } from 'url'
@@ -41,9 +40,6 @@ export class VM extends Resource {
 
   async _close () {
     if (this.sandbox) {
-      if (this.cid) {
-        await this.sandbox.killContainer({cid: this.cid})
-      }
       await this.sandbox.teardown()
     }
     this.sandbox = undefined

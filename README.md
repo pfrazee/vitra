@@ -30,9 +30,14 @@ A hosted smart-contract runtime using secure ledgers. [Read the white paper](./d
     - [ ] Transaction results
   - [x] Log replay
 - [x] Implement monitoring
-- [ ] Additional tests
+- [x] Additional tests
   - [x] Participant changes
-  - [ ] Contract changes
+  - [x] Contract changes
+- [ ] Implement developer APIs
+  - [ ] Debugging information for contract-definition issues
+  - [ ] Testing sandbox for debugging changes to an active 
+- [ ] Edge-case protocols
+  - [ ] Source-code rollback protocol for handling bad deployments
 - [ ] Documentation
   - [ ] Overview
   - [ ] Basic usage
