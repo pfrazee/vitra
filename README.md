@@ -29,7 +29,7 @@ A hosted smart-contract runtime using secure ledgers. [Read the white paper](./d
     - [ ] Transactions
     - [ ] Transaction results
   - [x] Log replay
-- [ ] Implement monitoring
+- [x] Implement monitoring
 - [ ] Additional tests
   - [x] Participant changes
   - [ ] Contract changes

@@ -44,7 +44,10 @@ export class ContractMonitor extends Resource {
 
   constructor (public contract: Contract) {
     super()
-    // TODO: need to use a separate VM from the contract
+  }
+
+  get verifiedLength () {
+    return this.expectedSeq - 1
   }
 
   async _close () {
@@ -72,8 +75,12 @@ export class ContractMonitor extends Resource {
     this.verifying = true
     ;(async () => {
       this._historyGenerator = this.contract.index.history({live: true})
-      for await (const entry of this.contract.index.history()) {
-        await this.validate(entry)
+      for await (const entry of this._historyGenerator) {
+        try {
+          await this.validate(entry)
+        } catch (e) {
+          this.emit('violation', e)
+        }
       }
     })()
   }
@@ -138,8 +145,8 @@ export class ContractMonitor extends Resource {
         break
       }
     }
-    this.emit('validated', entry)
     this.expectedSeq++
+    this.emit('validated', entry)
   }
 
   private validateAck (entry: IndexHistoryEntry) {
@@ -176,7 +183,6 @@ export class ContractMonitor extends Resource {
     this.assert(inputValue.pubkey?.byteLength === 32, UnexpectedValueError, entry, '.pubkey to be a buffer of 32 bytes')
     this.assert(typeof inputValue.executor === 'boolean', UnexpectedValueError, entry, '.executor to be a boolean')
     this.assert(typeof inputValue.active === 'boolean', UnexpectedValueError, entry, '.active to be a boolean')
-    // TODO: side-effects should be queued to apply after tx is validated
     if (inputValue.active) {
       this._queuedEffects.push({effect: 'add-input', value: keyToStr(inputValue.pubkey)})
     } else {
