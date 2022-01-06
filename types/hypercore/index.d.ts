@@ -36,6 +36,43 @@ declare module 'hypercore' {
     // TODO
   }
 
+  declare class MerkleTreeNode {
+    index: number
+    size: number
+    hash: Buffer
+  }
+
+  declare interface HypercoreCrypto {
+    // this is a partial declaration of the interface
+    sign (message: Buffer, secretKey: Buffer): Buffer
+    verify (message: Buffer, signature: Buffer, publicKey: Buffer): boolean
+    tree (peaks: MerkleTreeNode[]): Buffer
+  }
+
+  declare class MerkleTree {
+    // this is a partial declaration of the interface
+    crypto: HypercoreCrypto
+    fork: number
+    hash (): Buffer
+    signedBy (key: Buffer): boolean
+    get (seq: number, error = true): Promise<MerkleTreeNode>
+    getRoots (seq: number): Promise<MerkleTreeNode[]>
+  }
+
+  declare class InnerHypercore {
+    // this is a partial declaration of the interface
+    tree: MerkleTree
+  }
+
+  declare interface HypercoreConstructorOpts {
+    createIfMissing?: boolean
+    overwrite?: boolean
+    valueEncoding?: any
+    encodeBatch?: (batch: any[]) => any[]
+    keyPair?: {publicKey: Buffer, secretKey: Buffer}
+    encryptionKey?: Buffer
+  }
+
   declare class Hypercore extends EventEmitter {
     key: Buffer
     discoveryKey?: Buffer
@@ -45,9 +82,11 @@ declare module 'hypercore' {
     closed: boolean
     opening: Promise<void>
     closing: Promise<void>
+    core?: InnerHypercore
 
     static createProtocolStream (isInitiator: boolean, opts?: any): NoiseSecretStream
 
+    constructor (storage: any, key?: Buffer, opts?: HypercoreConstructorOpts)
     session (opts?: any): Hypercore
     close (): Promise<void>
     replicate (isInitiator: boolean, opts?: any): NoiseSecretStream
@@ -70,6 +109,8 @@ declare module 'hypercore' {
     truncate (newLength = 0, fork = -1): Promise<void>
     append (block: any): Promise<any>
     registerExtension (name: string, handlers: HypercoreExtensionHandlers): HypercoreExtension
+    sign (signable: Buffer): Buffer
+    on(evt: string, handler: Function)
   }
 
   export = Hypercore

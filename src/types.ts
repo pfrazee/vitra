@@ -1,22 +1,74 @@
-export const CONTRACT_SOURCE_KEY = '/.sys/contract/source'
+import { AckSchema } from './schemas.js'
 
 export type Key = string|Buffer
 
-export interface ItoOpLogEntry {
+export interface ContractCode {
+  source: string
+}
+
+export interface ContractCreateOpts {
+  code: ContractCode
+}
+
+export interface LogInclusionProof {
+  seq: number
+  hash: Buffer
+  signature: Buffer
+}
+
+export interface OperationResults extends AckSchema {
+  mutations: any[]
+}
+
+export interface IndexBatchEntry {
+  type: string
+  path: string
+  value?: any
+}
+
+export interface OpLogEntry {
   seq: number
   value: any
 }
 
-export interface ItoIndexLogListOpts {
+export interface IndexLogListOpts {
   reverse?: boolean
+  offset?: number
   limit?: number
 }
 
-export interface ItoIndexLogListEntry {
-  seq: number
-  key: string
+export interface IndexLogEntry {
+  container: boolean
+  seq: number|undefined
+  path: string
+  name: string
   value: any
 }
+
+export interface IndexHistoryOpts {
+  live?: boolean
+  reverse?: boolean
+  gte?: number
+  gt?: number
+  lte?: number
+  lt?: number
+  limit?: number
+}
+
+export interface IndexHistoryEntry {
+  type: string
+  seq: number
+  path: string
+  name: string
+  value: any
+}
+
+export interface BaseApiCallRes {
+  response: any
+  ops: any[]
+}
+
+export type ApplyActions = Record<string, {type: string, value?: any}>
 
 export function keyToBuf (key: Key) {
   if (Buffer.isBuffer(key)) {
