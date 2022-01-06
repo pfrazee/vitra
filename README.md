@@ -1,4 +1,4 @@
-# In The Open (ITO)
+![In The Open](./docs/logo-with-text.jpg)
 
 *Work in progress*
 
@@ -32,6 +32,12 @@ A hosted contract runtime using secure ledgers. [Read the white paper](./docs/wh
 - [ ] Additional tests
   - [x] Participant changes
   - [ ] Contract changes
+- [ ] Documentation
+  - [ ] Overview
+  - [ ] Basic usage
+  - [ ] Examples
+  - [ ] Technical description
+  - [ ] Complete the white paper
 - [ ] Create CLI
 
 ## Overview
