@@ -2,7 +2,7 @@
 
 *Work in progress*
 
-A blockchain-free smart contract runtime using secure ledgers. [Read the white paper](./docs/whitepaper.md).
+A hosted contract runtime using secure ledgers. [Read the white paper](./docs/whitepaper.md).
 
 ## TODO
 
