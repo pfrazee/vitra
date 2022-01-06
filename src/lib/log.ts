@@ -13,16 +13,20 @@ import {
   IndexLogEntry,
   LogInclusionProof,
   IndexBatchEntry,
+  IndexHistoryOpts,
+  IndexHistoryEntry,
   Key,
   keyToStr
 } from '../types.js'
 import {
   PARTICIPANT_PATH_PREFIX,
 } from '../schemas.js'
-import { beeShallowList, pathToBeekey } from './util/hyper.js'
+import { beeShallowList, pathToBeekey, beekeyToPath } from './util/hyper.js'
 import { Storage } from './storage.js'
 // @ts-ignore no types available -prf
 import * as c from 'compact-encoding'
+// @ts-ignore no types available -prf
+import * as toIterable from 'stream-to-it'
 
 export class Log extends EventEmitter {
   core: Hypercore
@@ -226,6 +230,19 @@ export class IndexLog extends Log {
       }
     }
     return oplogs
+  }
+
+  async* history (opts?: IndexHistoryOpts): AsyncGenerator<IndexHistoryEntry> {
+    for await (const entry of toIterable.source(this.bee.createHistoryStream(opts))) {
+      const path = `/${beekeyToPath(entry.key)}`
+      yield {
+        type: entry.type,
+        seq: entry.seq,
+        path,
+        name: path.split('/').filter(Boolean).pop() || '',
+        value: entry.value
+      }
+    }
   }
 }
 

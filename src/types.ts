@@ -1,3 +1,5 @@
+import { AckSchema } from './schemas.js'
+
 export type Key = string|Buffer
 
 export interface ContractCode {
@@ -14,17 +16,7 @@ export interface LogInclusionProof {
   signature: Buffer
 }
 
-export interface Ack {
-  success: boolean|undefined
-  error: string|undefined
-  origin: string
-  seq: number
-  ts: number
-  metadata: any
-  numMutations: number
-}
-
-export interface OperationResults extends Ack {
+export interface OperationResults extends AckSchema {
   mutations: any[]
 }
 
@@ -48,6 +40,24 @@ export interface IndexLogListOpts {
 export interface IndexLogEntry {
   container: boolean
   seq: number|undefined
+  path: string
+  name: string
+  value: any
+}
+
+export interface IndexHistoryOpts {
+  live?: boolean
+  reverse?: boolean
+  gte?: number
+  gt?: number
+  lte?: number
+  lt?: number
+  limit?: number
+}
+
+export interface IndexHistoryEntry {
+  type: string
+  seq: number
   path: string
   name: string
   value: any

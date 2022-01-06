@@ -7,8 +7,18 @@ export const ACK_PATH_PREFIX = '/.sys/acks/'
 export const GENESIS_ACK_PATH = '/.sys/acks/genesis'
 export const genAckPath = (pubkey: Key, seq: number) => `${ACK_PATH_PREFIX}${keyToStr(pubkey)}/${String(seq).padStart(15, '0')}`
 
-export interface ItoSchemaInput {
+export interface InputSchema {
   pubkey: Buffer
   executor: boolean
   active: boolean
+}
+
+export interface AckSchema {
+  success: boolean|undefined
+  error: string|undefined
+  origin: string
+  seq: number
+  ts: number
+  metadata: any
+  numMutations: number
 }

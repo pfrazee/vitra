@@ -68,3 +68,21 @@ ava('successfully runs loaded version', async t => {
   await contract.close()
   await contract2.close()
 })
+
+ava('simple contract run with verification', async t => {
+  const contract = await Contract.create(new StorageInMemory(), {
+    code: {source: SIMPLE_CONTRACT}
+  })
+
+  const res1 = await contract.call('get', {path: '/foo'})
+  const res2 = await contract.call('put', {path: '/foo', value: 'hello world'})
+  await contract.executor?.sync()
+  const res3 = await contract.call('get', {path: '/foo'})
+  t.falsy(res1.response)
+  t.deepEqual(res2.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world' })
+  t.is(res3.response.value, 'hello world')
+
+  await contract.verify()
+
+  await contract.close()
+})

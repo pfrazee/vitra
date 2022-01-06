@@ -4,8 +4,8 @@ import assert from 'assert'
 // @ts-ignore no types available -prf
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as msgpackr from 'msgpackr'
-import { Ack, IndexBatchEntry, keyToStr } from '../types.js'
-import { ACK_PATH_PREFIX, genAckPath } from '../schemas.js'
+import { IndexBatchEntry, keyToStr } from '../types.js'
+import { AckSchema, ACK_PATH_PREFIX, genAckPath } from '../schemas.js'
 import { Contract } from './contract.js'
 import { OpLog, ReadStream } from './log.js'
 
@@ -199,7 +199,7 @@ export class ContractExecutor extends Resource {
       assertStillOpen()
 
       // create ack object
-      const ack: Ack = {
+      const ack: AckSchema = {
         success: undefined,
         error: undefined,
         origin: keyToStr(log.pubkey),

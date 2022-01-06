@@ -27,7 +27,7 @@ A blockchain-free smart contract runtime using secure ledgers. [Read the white p
     - [x] Ops
     - [ ] Transactions
     - [ ] Transaction results
-  - [ ] Log replay
+  - [x] Log replay
 - [ ] Implement monitoring
 - [ ] Additional tests
   - [x] Participant changes

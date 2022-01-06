@@ -6,7 +6,6 @@ import * as assert from 'assert'
 import {
   ContractCreateOpts,
   IndexBatchEntry,
-  Ack,
   OperationResults,
   ApplyActions,
   Key,
@@ -19,13 +18,15 @@ import {
   PARTICIPANT_PATH_PREFIX,
   GENESIS_ACK_PATH,
   genAckPath,
-  ItoSchemaInput
+  InputSchema,
+  AckSchema
 } from '../schemas.js'
 import { parseHyperbeeMessage } from './util/hyper.js'
 import { Storage } from './storage.js'
 import { Operation, Transaction } from './transactions.js'
 import { IndexLog, OpLog } from './log.js'
 import { ContractExecutor } from './executor.js'
+import { ContractMonitor } from './monitor.js'
 import { VM } from './vm.js'
 import lock from './util/lock.js'
 
@@ -180,27 +181,18 @@ export class Contract extends Resource {
   // =
 
   async verify () {
-    throw new Error('TODO')
+    const monitor = new ContractMonitor(this)
+    await monitor.open()
+    const results = await monitor.verify()
+    await monitor.close()
+    return results
   }
 
-  async monitor () {
-    throw new Error('TODO')
-    /* TODO do we need to do this? may just need to tail the executor oplog and index
-    for (const log of this.oplogs) {
-      this._watchOpLog(log, async (log: ItoOpLog, seq: number, value: any) => {
-        try {
-          const proof = {seq, hash: EMPTY_BUFFER, signature: EMPTY_BUFFER}
-          await this.verifyOp(new ItoOperation(log, proof, value))
-        } catch (err: any) {
-          this.emit('error', new AggregateError([err], `Verification failed for op ${seq} of oplog ${keyToStr(log.pubkey)}`))
-        }
-      })
-    }*/
-  }
-
-  async verifyOp (op: Operation) {
-    await op.verifyInclusion()
-    throw new Error('TODO')
+  async monitor (): Promise<ContractMonitor> {
+    const monitor = new ContractMonitor(this)
+    await monitor.open()
+    monitor.watch()
+    return monitor
   }
 
   // vm
@@ -247,18 +239,17 @@ export class Contract extends Resource {
   }
 
   _mapApplyActionsToBatch (actions: ApplyActions): IndexBatchEntry[] {
+    // NOTE this function is called by the executor *and* the monitor and therefore
+    //      it must be a pure function. Any outside state will cause validation to fail.
+    // -prf
     return Object.entries(actions)
       .map(([path, action]): IndexBatchEntry => {
         if (path.startsWith('/.sys/')) {
           if (action.type === 'addOplog') {
             const pubkeyBuf = keyToBuf(action.value.pubkey)
-            const oplog = this.oplogs.find(log => log.pubkey.equals(pubkeyBuf))
-            if (oplog?.isExecutor) throw new Error('Unable to modify the executor oplog')
             return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: true, executor: false}}
           } else if (action.type === 'removeOplog') {
             const pubkeyBuf = keyToBuf(action.value.pubkey)
-            const oplog = this.oplogs.find(log => log.pubkey.equals(pubkeyBuf))
-            if (oplog?.isExecutor) throw new Error('Unable to remove the executor oplog')
             return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: false, executor: false}}
           } else if (action.type === 'setContractSource') {
             return {type: 'put', path: CONTRACT_SOURCE_PATH, value: action.value.code}
@@ -289,7 +280,7 @@ export class Contract extends Resource {
     throw new Error('TODO')
   }
 
-  async _onOplogChange (entry: ItoSchemaInput): Promise<void> {
+  async _onOplogChange (entry: InputSchema): Promise<void> {
     // console.log('_onOplogChange', entry)
     const pubkeyBuf = entry.pubkey
     const oplogIndex = this.oplogs.findIndex(oplog => oplog.pubkey.equals(pubkeyBuf))
@@ -303,12 +294,12 @@ export class Contract extends Resource {
   // helpers
   // =
 
-  async _fetchOpAck (op: Operation): Promise<Ack|undefined> {
+  async _fetchOpAck (op: Operation): Promise<AckSchema|undefined> {
     if (this.closing || this.closed) return
     const pubkey = op.oplog.pubkey
     const seq = op.proof.seq
     const ack = (await this.index.get(genAckPath(pubkey, seq)))?.value
-    return ack ? (ack as Ack) : undefined
+    return ack ? (ack as AckSchema) : undefined
   }
 
   async _fetchOpMutations (op: Operation): Promise<OperationResults|undefined> {
