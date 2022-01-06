@@ -21,6 +21,7 @@ A hosted smart-contract runtime using secure ledgers. [Read the white paper](./d
 - [ ] API details & various tasks
   - [ ] Flows for creating oplogs
   - [x] Await transaction processing
+  - [ ] Networking
 - [ ] Implement verification
   - [ ] Append-only constraint violation detection
   - [ ] Inclusion proofs for

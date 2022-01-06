@@ -3,6 +3,7 @@ import { Resource } from './util/resource.js'
 import { AwaitLock } from './util/lock.js'
 import { Contract } from './contract.js'
 import { OpLog } from './log.js'
+import { VM } from './vm.js'
 import { IndexHistoryEntry, OpLogEntry, IndexBatchEntry, Key, keyToStr, keyToBuf } from '../types.js'
 import {
   CONTRACT_SOURCE_PATH,
@@ -23,15 +24,23 @@ enum MonitorState {
 }
 type Constructor = new (...args: any[]) => Object;
 
+interface QueuedEffect {
+  effect: 'set-vm'|'add-input'|'remove-input'
+  value: any
+}
+
 export class ContractMonitor extends Resource {
   expectedSeq = 1
   expectedMutations: IndexBatchEntry[] = []
   state: MonitorState = MonitorState.VALIDATING_GENESIS_SOURCE
   inputs: Set<string> = new Set()
+  vm: VM|undefined
+  verifying = false
 
   private _oplogs: Map<string, OpLog> = new Map()
   private _loadOplogLock = new AwaitLock()
   private _historyGenerator: AsyncGenerator<IndexHistoryEntry>|undefined
+  private _queuedEffects: QueuedEffect[] = []
 
   constructor (public contract: Contract) {
     super()
@@ -42,16 +51,25 @@ export class ContractMonitor extends Resource {
     for (const oplog of this._oplogs.values()) {
       await oplog.close()
     }
+    this.vm?.close()
     this._historyGenerator?.return(undefined)
+    this.verifying = false
   }
 
   async verify () {
+    assert(!this.verifying, 'Monitor already running verification')
+    this.reset()
+    this.verifying = true
     for await (const entry of this.contract.index.history()) {
       await this.validate(entry)
     }
+    this.verifying = false
   }
 
   watch () {
+    assert(!this.verifying, 'Monitor already running verification')
+    this.reset()
+    this.verifying = true
     ;(async () => {
       this._historyGenerator = this.contract.index.history({live: true})
       for await (const entry of this.contract.index.history()) {
@@ -59,41 +77,65 @@ export class ContractMonitor extends Resource {
       }
     })()
   }
+  
+  private reset () {
+    this.expectedSeq = 1
+    this.expectedMutations.length = 0
+    this.state = MonitorState.VALIDATING_GENESIS_SOURCE
+    this.inputs = new Set()
+    this._queuedEffects.length = 0
+  }
+
+  private async transition (state: MonitorState) {
+    this.state = state
+    if (state === MonitorState.AWAITING_TX) {
+      await this.applyQueuedEffects()
+    }
+  }
 
   private async validate (entry: IndexHistoryEntry) {
     this.assert(entry.seq === this.expectedSeq, UnexpectedSeqError, entry, this.expectedSeq)
-    if (this.state === MonitorState.VALIDATING_GENESIS_SOURCE) {
-      this.assert(entry.path === CONTRACT_SOURCE_PATH, UnexpectedPathError, entry, CONTRACT_SOURCE_PATH)
-      this.validateContractSourceMutation(entry)
-      this.state = MonitorState.VALIDATING_GENESIS_INPUTS
-    } else if (this.state === MonitorState.VALIDATING_GENESIS_INPUTS) {
-      if (entry.path === GENESIS_ACK_PATH) {
-        this.assert(this.inputs.size > 0, NoGenesisInputsDeclaredError)
-        this.state = MonitorState.AWAITING_TX
-      } else if (entry.path.startsWith(PARTICIPANT_PATH_PREFIX)) {
-        this.validateInputMutation(entry)
-      } else {
-        throw new UnexpectedPathError(entry, `${GENESIS_ACK_PATH} or a child of ${PARTICIPANT_PATH_PREFIX}`)
+    switch (this.state) {
+      case MonitorState.VALIDATING_GENESIS_SOURCE: {
+        this.assert(entry.path === CONTRACT_SOURCE_PATH, UnexpectedPathError, entry, CONTRACT_SOURCE_PATH)
+        this.validateContractSourceMutation(entry)
+        await this.transition(MonitorState.VALIDATING_GENESIS_INPUTS)
+        break
       }
-    } else if (this.state === MonitorState.AWAITING_TX) {
-      this.assert(entry.path.startsWith(ACK_PATH_PREFIX), AckExpectedError, entry)
-      this.validateAck(entry)
-      const ackValue = entry.value as AckSchema
-      const op = await this.fetchOp(ackValue.origin, ackValue.seq)
-      this.assert(!!op, CannotFetchOpError, entry)
-      const replayRes = await this.replayOp(ackValue, (op as OpLogEntry).value)
-      if ('error' in replayRes) {
-        this.assert(ackValue.success === false, MonitorApplyFailedError, entry, replayRes.errorMessage)
-      } else {
-        this.expectedMutations = (replayRes as IndexBatchEntry[])
+      case MonitorState.VALIDATING_GENESIS_INPUTS: {
+        if (entry.path.startsWith(PARTICIPANT_PATH_PREFIX)) {
+          this.validateInputMutation(entry)
+        } else if (entry.path === GENESIS_ACK_PATH) {
+          await this.transition(MonitorState.AWAITING_TX)
+          this.assert(this.inputs.size > 0, NoGenesisInputsDeclaredError)
+        } else {
+          throw new UnexpectedPathError(entry, `${GENESIS_ACK_PATH} or a child of ${PARTICIPANT_PATH_PREFIX}`)
+        }
+        break
       }
-      this.state = MonitorState.VALIDATING_TX
-    } else if (this.state === MonitorState.VALIDATING_TX) {
-      const expectedMutation = this.expectedMutations.shift()
-      this.assert(!entry.path.startsWith(ACK_PATH_PREFIX), MutationExpectedError, entry, expectedMutation)
-      this.validateMutation(entry, expectedMutation as IndexBatchEntry)
-      if (this.expectedMutations.length === 0){
-        this.state = MonitorState.AWAITING_TX
+      case MonitorState.AWAITING_TX: {
+        this.assert(entry.path.startsWith(ACK_PATH_PREFIX), AckExpectedError, entry)
+        this.validateAck(entry)
+        const ackValue = entry.value as AckSchema
+        const op = await this.fetchOp(ackValue.origin, ackValue.seq)
+        this.assert(!!op, CannotFetchOpError, entry)
+        const replayRes = await this.replayOp(ackValue, (op as OpLogEntry).value)
+        if ('error' in replayRes) {
+          this.assert(ackValue.success === false, MonitorApplyFailedError, entry, replayRes.errorMessage)
+        } else {
+          this.expectedMutations = (replayRes as IndexBatchEntry[])
+        }
+        await this.transition(MonitorState.VALIDATING_TX)
+        break
+      }
+      case MonitorState.VALIDATING_TX: {
+        const expectedMutation = this.expectedMutations.shift()
+        this.assert(!entry.path.startsWith(ACK_PATH_PREFIX), MutationExpectedError, entry, expectedMutation)
+        this.validateMutation(entry, expectedMutation as IndexBatchEntry)
+        if (this.expectedMutations.length === 0){
+          await this.transition(MonitorState.AWAITING_TX)
+        }
+        break
       }
     }
     this.emit('validated', entry)
@@ -124,7 +166,7 @@ export class ContractMonitor extends Resource {
 
   private validateContractSourceMutation (entry: IndexHistoryEntry) {
     this.assert(typeof entry.value === 'string' && entry.value.length, UnexpectedValueError, entry, 'a utf-8 string')
-    // TODO: load VM
+    this._queuedEffects.push({effect: 'set-vm', value: entry.value})
   }
 
   private validateInputMutation (entry: IndexHistoryEntry) {
@@ -136,41 +178,50 @@ export class ContractMonitor extends Resource {
     this.assert(typeof inputValue.active === 'boolean', UnexpectedValueError, entry, '.active to be a boolean')
     // TODO: side-effects should be queued to apply after tx is validated
     if (inputValue.active) {
-      this.inputs.add(keyToStr(inputValue.pubkey))
+      this._queuedEffects.push({effect: 'add-input', value: keyToStr(inputValue.pubkey)})
     } else {
-      this.inputs.delete(keyToStr(inputValue.pubkey))
+      this._queuedEffects.push({effect: 'remove-input', value: keyToStr(inputValue.pubkey)})
     }
   }
 
+  private async applyQueuedEffects () {
+    for (const effect of this._queuedEffects) {
+      switch (effect.effect) {
+        case 'set-vm': {
+          if (this.vm) {
+            await this.vm.close()
+          }
+          this.vm = new VM(this.contract, effect.value)
+          await this.vm.open()
+          await this.vm.restrict()
+          break
+        }
+        case 'add-input':
+          this.inputs.add(effect.value)
+          break
+        case 'remove-input':
+          this.inputs.delete(effect.value)
+          break
+      }
+    }
+    this._queuedEffects.length = 0
+  }
+
   private async replayOp (ack: AckSchema, opValue: any): Promise<IndexBatchEntry[]|{error: boolean, errorMessage: string}> {
-    const assertStillOpen = () => assert(!this.contract.closing && !this.contract.closed, 'Contract closed')
     const release = await this.contract.lock('replayOp')
     try {
-      assert(!!this.contract.vm, 'Contract VM not initialized')
-      assertStillOpen()
-
-      // enter restricted mode
-      await this.contract.vm.restrict()
-      assertStillOpen()
-
-      // call apply()
+      assert(!!this.vm, 'Contract VM not initialized')
       let applySuccess = undefined
       let applyError = undefined
       let batch: IndexBatchEntry[] = []
       try {
-        const applyRes = await this.contract.vm.contractApply(opValue, ack)
+        const applyRes = await this.vm.contractApply(opValue, ack)
         batch = this.contract._mapApplyActionsToBatch(applyRes.actions)
         applySuccess = true
       } catch (e: any) {
         applySuccess = false
         applyError = e
       }
-      assertStillOpen()
-
-      // leave restricted mode
-      await this.contract.vm.unrestrict()
-      assertStillOpen()
-
       if (!applySuccess) {
         return {error: true, errorMessage: applyError.toString()}
       }

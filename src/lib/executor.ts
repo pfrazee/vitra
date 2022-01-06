@@ -63,6 +63,7 @@ export class ContractExecutor extends Resource {
   }
 
   async* watch (): AsyncGenerator<[string, WatchEvtDetails]> {
+    // TODO need a more reliable impl, emit can sometimes be an old resolve()
     let emit: Function|undefined
     const onAdd = (oplog: OpLog) => emit?.(['added', {oplog}])
     const onRemove = (oplog: OpLog) => emit?.(['removed', {oplog}])

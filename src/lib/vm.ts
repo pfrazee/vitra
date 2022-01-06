@@ -5,16 +5,12 @@ import { fileURLToPath } from 'url'
 import { Sandbox as ConfineSandbox } from 'confine-sandbox'
 import { Contract } from './contract.js'
 import { keyToStr } from '../types.js'
+import { Resource } from './util/resource.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const NODE_MODULES_PATH = path.join(__dirname, '..', '..', 'node_modules')
 
-export class VM extends EventEmitter {
-  opening = false
-  opened = false
-  closing = false
-  closed = false
-
+export class VM extends Resource {
   restricted = false
   private sandbox: ConfineSandbox|undefined
   private cid: number|undefined
@@ -23,10 +19,7 @@ export class VM extends EventEmitter {
     super()
   }
 
-  async open () {
-    assert(!this.closing && !this.closed, 'Executor already closed')
-    if (this.opened || this.opening) return
-    this.opening = true
+  async _open () {
     this.sandbox = new ConfineSandbox({
       runtime: 'ito-confine-runtime',
       globals: this._createVMGlobals(),
@@ -44,14 +37,9 @@ export class VM extends EventEmitter {
       }
     })
     this.cid = cid
-    this.opening = false
-    this.opened = true
   }
 
-  async close () {
-    assert(this.opened, 'VM not opened')
-    if (this.closing || this.closed) return
-    this.closing = true
+  async _close () {
     if (this.sandbox) {
       if (this.cid) {
         await this.sandbox.killContainer({cid: this.cid})
@@ -60,9 +48,6 @@ export class VM extends EventEmitter {
     }
     this.sandbox = undefined
     this.cid = undefined
-    this.closing = false
-    this.opened = false
-    this.closed = true
   }
 
   async contractCall (methodName: string, params: Record<string, any>): Promise<any> {
