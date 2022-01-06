@@ -1,4 +1,4 @@
-![In The Open](./docs/logo-with-text.jpg)
+# In The Open (ITO)
 
 A hosted smart-contract runtime using secure ledgers. [Read the white paper](./docs/whitepaper.md).
 
