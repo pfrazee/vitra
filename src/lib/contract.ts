@@ -128,7 +128,6 @@ export class Contract extends Resource {
   }
 
   async _open () {
-    await this._createVM()
     if (this.isExecutor) {
       this.executor = new ContractExecutor(this)
       await this.executor.open()
@@ -162,6 +161,7 @@ export class Contract extends Resource {
     if (methodName === 'process' || methodName === 'apply') {
       throw new Error(`Cannot call "${methodName}" directly`)
     }
+    await this._createVMIfNeeded()
     if (this.vm) {
       const res = await this.vm.contractCall(methodName, params)
       let ops: Operation[] = []
@@ -206,7 +206,8 @@ export class Contract extends Resource {
     throw new Error(`Invalid contract sourcecode entry; must be a string or a buffer containing utf-8.`)
   }
 
-  private async _createVM () {
+  async _createVMIfNeeded () {
+    if (this.vm) return
     const source = await this._readContractCode()
     this.vm = new VM(this, source)
     this.vm.on('error', (evt: {error: string}) => {

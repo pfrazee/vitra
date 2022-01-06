@@ -43,6 +43,7 @@ export class ContractExecutor extends Resource {
     if (!this.contract.isExecutor) {
       throw new Error('Not the executor')
     }
+    await this.contract._createVMIfNeeded()
     for (const log of this.contract.oplogs) {
       this.watchOpLog(log)
     }
