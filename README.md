@@ -1,8 +1,8 @@
 ![In The Open](./docs/logo-with-text.jpg)
 
-*Work in progress*
+A hosted smart-contract runtime using secure ledgers. [Read the white paper](./docs/whitepaper.md).
 
-A hosted contract runtime using secure ledgers. [Read the white paper](./docs/whitepaper.md).
+**⚠️Work in progress⚠️**
 
 ## TODO
 
