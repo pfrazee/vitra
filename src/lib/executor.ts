@@ -18,9 +18,9 @@ interface WatchEvtDetails {
 }
 
 export class ContractExecutor extends Resource {
-  private _oplogsWatcher: AsyncGenerator<[string, OpLog]>|undefined
-  private _lastExecutedSeqs: Map<string, number> = new Map()
-  private _oplogReadStreams: Map<string, ReadStream> = new Map()
+  protected _oplogsWatcher: AsyncGenerator<[string, OpLog]>|undefined
+  protected _lastExecutedSeqs: Map<string, number> = new Map()
+  protected _oplogReadStreams: Map<string, ReadStream> = new Map()
   constructor (public contract: Contract) {
     super()
   }
@@ -135,10 +135,10 @@ export class ContractExecutor extends Resource {
     }
   }
 
-  // private methods
+  // protected methods
   // =
 
-  private async _readLastExecutedSeq (oplog: OpLog) {
+  protected async _readLastExecutedSeq (oplog: OpLog) {
     let seq = -1
     const keystr = keyToStr(oplog.pubkey)
     const entries = await this.contract.index.list(`${ACK_PATH_PREFIX}${keystr}`)
@@ -148,21 +148,21 @@ export class ContractExecutor extends Resource {
     if (seq !== -1) this._putLastExecutedSeq(oplog, seq)
   }
 
-  private _getLastExecutedSeq (oplog: OpLog, fallback = 0): number {
+  protected _getLastExecutedSeq (oplog: OpLog, fallback = 0): number {
     return this._lastExecutedSeqs.get(keyToStr(oplog.pubkey)) || fallback
   }
 
-  private _putLastExecutedSeq (oplog: OpLog, seq: number) {
+  protected _putLastExecutedSeq (oplog: OpLog, seq: number) {
     this._lastExecutedSeqs.set(keyToStr(oplog.pubkey), seq)
   }
 
-  private _captureLogSeqs (): Map<string, number> {
+  protected _captureLogSeqs (): Map<string, number> {
     const seqs = new Map()
     for (const log of this.contract.oplogs) seqs.set(keyToStr(log.pubkey), log.length - 1)
     return seqs
   }
 
-  private _hasExecutedAllSeqs (seqs: Map<string, number>): boolean {
+  protected _hasExecutedAllSeqs (seqs: Map<string, number>): boolean {
     for (const [pubkey, seq] of seqs.entries()) {
       const executedSeq = this._lastExecutedSeqs.has(pubkey) ? (this._lastExecutedSeqs.get(pubkey) || 0) : -1
       if (executedSeq < seq) return false
@@ -170,7 +170,7 @@ export class ContractExecutor extends Resource {
     return true
   }
 
-  private async _executeOp (log: OpLog, seq: number, opValue: any) {
+  protected async _executeOp (log: OpLog, seq: number, opValue: any) {
     const assertStillOpen = () => assert(!this.contract.closing && !this.contract.closed, 'Contract closed')
 
     const release = await this.contract.lock('_executeOp')

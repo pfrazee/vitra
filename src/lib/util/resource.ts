@@ -26,7 +26,7 @@ export class Resource extends EventEmitter {
     this.closed = false
   }
 
-  async open () {
+  async open (opts?: any) {
     await this[lock].acquireAsync()
     try {
       if (this.closed) {
@@ -37,7 +37,7 @@ export class Resource extends EventEmitter {
       }
       if (this.opened) return
       this.opening = true
-      await this._open()
+      await this._open(opts)
       this.opening = false
       this.opened = true
       this.emit('opened')
@@ -64,6 +64,6 @@ export class Resource extends EventEmitter {
     }
   }
 
-  async _open () {}
+  async _open (opts?: any) {}
   async _close () {}
 }

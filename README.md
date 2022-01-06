@@ -24,11 +24,15 @@ A hosted smart-contract runtime using secure ledgers. [Read the white paper](./d
   - [ ] Networking
 - [ ] Implement verification
   - [ ] Append-only constraint violation detection
-  - [ ] Inclusion proofs for
-    - [x] Ops
-    - [ ] Transactions
-    - [ ] Transaction results
   - [x] Log replay
+- [ ] Implement compact (shareable) proof generation
+  - [ ] Inclusion proofs
+    - [ ] Ops
+    - [ ] Transactions
+    - [ ] Transaction-results
+  - [ ] Fraud proofs
+    - [ ] Append-only violations
+    - [ ] Contract violations
 - [x] Implement monitoring
 - [x] Additional tests
   - [x] Participant changes

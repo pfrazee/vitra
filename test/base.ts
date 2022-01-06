@@ -77,10 +77,13 @@ ava('simple contract run with verification', async t => {
   const res1 = await contract.call('get', {path: '/foo'})
   const res2 = await contract.call('put', {path: '/foo', value: 'hello world'})
   await contract.executor?.sync()
-  const res3 = await contract.call('get', {path: '/foo'})
+  const res3 = await contract.call('put', {path: '/foo', value: 'hello world!'})
+  await contract.executor?.sync()
+  const res4 = await contract.call('get', {path: '/foo'})
   t.falsy(res1.response)
   t.deepEqual(res2.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world' })
-  t.is(res3.response.value, 'hello world')
+  t.deepEqual(res3.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world!' })
+  t.is(res4.response.value, 'hello world!')
 
   await contract.verify()
 
@@ -92,7 +95,6 @@ ava('simple contract run with active monitoring', async t => {
     code: {source: SIMPLE_CONTRACT}
   })
 
-  
   const monitor = await contract.monitor()
   const validationEvents: IndexHistoryEntry[] = []
   const whenValidated = new Promise(resolve => {

@@ -1,4 +1,6 @@
 import { AckSchema } from './schemas.js'
+import { TestContractExecutorBehavior } from './lib/testing/executor.js'
+export { TestContractExecutorBehavior } from './lib/testing/executor.js'
 
 export type Key = string|Buffer
 
@@ -7,7 +9,8 @@ export interface ContractCode {
 }
 
 export interface ContractCreateOpts {
-  code: ContractCode
+  code: ContractCode,
+  executorTestingBehavior?: TestContractExecutorBehavior
 }
 
 export interface LogInclusionProof {

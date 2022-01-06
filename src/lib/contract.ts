@@ -27,6 +27,7 @@ import { Storage } from './storage.js'
 import { Operation, Transaction } from './transactions.js'
 import { IndexLog, OpLog } from './log.js'
 import { ContractExecutor } from './executor.js'
+import { TestContractExecutor } from './testing/executor.js'
 import { ContractMonitor } from './monitor.js'
 import { VM } from './vm.js'
 import lock from './util/lock.js'
@@ -107,7 +108,7 @@ export class Contract extends Resource {
     const contract = new Contract(storage, index)
     contract.oplogs.add(await OpLog.create(storage, true)) // executor oplog
     await contract._writeInitBlocks(opts?.code?.source)
-    await contract.open()
+    await contract.open(opts)
 
     return contract
   }
@@ -129,9 +130,13 @@ export class Contract extends Resource {
     return contract
   }
 
-  async _open () {
+  async _open (opts?: ContractCreateOpts) {
     if (this.isExecutor) {
-      this.executor = new ContractExecutor(this)
+      if (typeof opts?.executorTestingBehavior === 'number') {
+        this.executor = new TestContractExecutor(this, opts.executorTestingBehavior)
+      } else {
+        this.executor = new ContractExecutor(this)
+      }
       await this.executor.open()
     }
   }
