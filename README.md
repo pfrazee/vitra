@@ -26,10 +26,7 @@ A hosted smart-contract runtime using secure ledgers. [Read the white paper](./d
   - [ ] Append-only constraint violation detection
   - [x] Log replay
 - [ ] Implement compact (shareable) proof generation
-  - [ ] Inclusion proofs
-    - [ ] Ops
-    - [ ] Transactions
-    - [ ] Transaction-results
+  - [ ] Operation inclusion proofs
   - [ ] Fraud proofs
     - [ ] Append-only violations
     - [ ] Contract violations
@@ -77,6 +74,14 @@ export const apply = {
 ```
 
 ## Future improvements
+
+### Transaction-result inclusion proofs
+
+Calls to a contract (transactions) may produce one or more operations, and each operation may produce one or more changes (results). Operations are published by the contract participants by writing to their "oplogs," while the operation results are always published by the executor in the "index log." Using Hypercore, we're able to generate inclusion proofs for any log message. 
+
+Inclusion proofs are comprised of a log message's sequence number, the root hash of the log's merkle tree, and a signature over the root hash by the log's keypair. We can use the inclusion proof to independently verify that a log message was published by a log, and to prove mischief if the log owner ever attempts to unpublish a message.
+
+ITO can easily generate an inclusion proof for *operations* when handling a transaction because there's a local interactive session with the participant that's executing the transaction. For the *results* published to the index log, there's no guarantee of an interactive session as the participant may not be the executor. The Hypercore protocol has mechanisms for requesting log inclusion proofs over a connection (this is fundamental to the protocol) but the implementation embeds this in the replication logic and does not currently include APIs to fetch proofs for random messages in a log. By adding those APIs to Hypercore, we can add transaction-result inclusion proofs to ITO's API.
 
 ### Native-code contract runtime
 

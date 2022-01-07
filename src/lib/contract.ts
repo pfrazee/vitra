@@ -335,7 +335,6 @@ export class Contract extends Resource {
       const results: OperationResults = Object.assign(ackEntry.value, {changes: []})
       if (ackEntry.value.success) {
         for (let i = ackEntry.seq + 1; i <= ackEntry.seq + results.numChanges; i++) {
-          // @ts-ignore debug
           const node = await this.index.bee.getBlock(i, {})
           const nodeObj = node.final()
           results.changes.push({

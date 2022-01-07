@@ -1,18 +1,13 @@
 import ava from 'ava'
-import { StorageInMemory, Contract, verifyInclusionProof } from '../src/index.js'
+import { StorageInMemory, Contract, verifyInclusionProof, Transaction } from '../src/index.js'
 
 const SIMPLE_CONTRACT = `
 import assert from 'assert'
 import { index } from 'contract'
 
-export async function get ({path}) {
-  assert(typeof path === 'string' && path.length > 0)
-  return await index.get(path)
-}
-
 export function put ({path, value}, emit) {
-  assert(typeof path === 'string' && path.length > 0)
   emit({op: 'PUT', path, value})
+  return {done: true}
 }
 
 export const apply = {
@@ -23,30 +18,55 @@ export const apply = {
 }
 `
 
-ava('inclusion proofs: op, transaction, and transaction-result', async t => {
+ava('op inclusion proof: valid, successful transaction', async t => {
   const contract = await Contract.create(new StorageInMemory(), {
     code: {source: SIMPLE_CONTRACT}
   })
 
   const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  
   t.is(tx.ops.length, 1)
   await tx.ops[0].verifyInclusion()
-  const txOp0Proof = tx.ops[0].proof.serialize()
+  const txOp0Proof = tx.ops[0].proof.toJSON()
   await verifyInclusionProof(txOp0Proof, {contract})
   
-  const txResults = await tx.fetchResults()
-  t.is(txResults.length, 1)
-
+  await tx.whenProcessed()
+  
+  const txObj = await tx.toJSON({includeValues: true})
+  t.is(txObj.isProcessed, true)
+  t.is(txObj.operations[0]?.result?.success, true)
+  t.is(txObj.operations[0]?.result?.changes?.length, 1)
+  const txClone = Transaction.fromJSON(contract, txObj)
+  await txClone.verifyInclusion()
 
   await contract.close()
 })
 
-ava.skip('failed op inclusion proof', async t => {
-  // TODO
+ava('op inclusion proof: valid, unsuccessful transaction', async t => {
+  const contract = await Contract.create(new StorageInMemory(), {
+    code: {source: SIMPLE_CONTRACT}
+  })
+
+  const tx = await contract.call('put', {value: 'hello world'})
+  
+  t.is(tx.ops.length, 1)
+  await tx.ops[0].verifyInclusion()
+  const txOp0Proof = tx.ops[0].proof.toJSON()
+  await verifyInclusionProof(txOp0Proof, {contract})
+  
+  await tx.whenProcessed()
+  
+  const txObj = await tx.toJSON({includeValues: true})
+  t.is(txObj.isProcessed, true)
+  t.is(txObj.operations[0]?.result?.success, false)
+  t.is(txObj.operations[0]?.result?.changes?.length, 0)
+  const txClone = Transaction.fromJSON(contract, txObj)
+  await txClone.verifyInclusion()
+
+  await contract.close()
 })
 
-ava.skip('failed transaction-result inclusion proof', async t => {
-  // TODO
+ava.skip('op inclusion proof: invalid, oplog removed operation after publishing', async t => {
 })
 
 ava.skip('fraud proof: oplog broke append-only', async t => {
