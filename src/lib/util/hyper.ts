@@ -56,19 +56,3 @@ export async function beeShallowList (bee: Hyperbee, path: string[]): Promise<In
     }
   } while (true)
 }
-
-export function parseHyperbeeMessage (seq: number, message: Buffer): IndexLogEntry|undefined {
-  try {
-    const decoded = Node.decode(message)
-    const path = beekeyToPath(decoded.key.toString('utf-8'))
-    return {
-      container: false,
-      seq,
-      path: `/${path}`,
-      name: path.split('/').filter(Boolean).pop() || '',
-      value: decoded.value ? msgpackr.decode(decoded.value) : undefined
-    }
-  } catch (e) {
-    return undefined
-  }
-}

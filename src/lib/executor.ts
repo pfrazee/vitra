@@ -191,7 +191,7 @@ export class ContractExecutor extends Resource {
         seq,
         ts: Date.now(),
         metadata: undefined,
-        numMutations: 0
+        numChanges: 0
       }
       let applySuccess = undefined
       let batch: IndexBatchEntry[] = []
@@ -236,7 +236,7 @@ export class ContractExecutor extends Resource {
       // write the result
       if (applySuccess) {
         ack.success = true
-        ack.numMutations = batch.length
+        ack.numChanges = batch.length
       } else {
         ack.success = false
         ack.error = applyError.toString()

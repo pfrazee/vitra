@@ -42,7 +42,7 @@ export class TestContractExecutor extends ContractExecutor {
       seq,
       ts: Date.now(),
       metadata: undefined,
-      numMutations: 0
+      numChanges: 0
     }
     const batch: IndexBatchEntry[] = [
       {

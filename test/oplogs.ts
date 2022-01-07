@@ -158,9 +158,9 @@ ava('remove oplogs', async t => {
 })
 
 ava.skip('execute ops on added oplogs', async t => {
-  throw new Error('TODO')
+  // TODO
 })
 
 ava.skip('dont execute ops on removed oplogs', async t => {
-  throw new Error('TODO')
+  // TODO
 })

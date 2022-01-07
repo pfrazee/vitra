@@ -164,7 +164,7 @@ export class ContractMonitor extends Resource {
     this.assert(this.getNextOplogSeqToProcess(ackValue.origin) === ackValue.seq, ProcessedOutOfOrderError, entry, ackValue.origin, this.getNextOplogSeqToProcess(ackValue.origin), ackValue.seq)
     this.setOplogSeqProcessed(ackValue.origin, ackValue.seq)
     if (ackValue.success) {
-      this.assert(typeof ackValue.numMutations === 'number', UnexpectedValueError, entry, '.numMutations to be a number')
+      this.assert(typeof ackValue.numChanges === 'number', UnexpectedValueError, entry, '.numChanges to be a number')
     } else {
       this.assert(typeof ackValue.error === 'string' || typeof ackValue.error === 'undefined', UnexpectedValueError, entry, '.error to be a string or undefined')
     }

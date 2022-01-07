@@ -64,8 +64,8 @@ ava('change contract source during execution', async t => {
   const res4 = await contract.call('setSource', {code: CONTRACT_V2})
   await res4.whenProcessed()
   const res4Results = await res4.fetchResults()
-  t.is(res4Results[0]?.mutations[0]?.path, '/.sys/contract/source')
-  t.is(res4Results[0]?.mutations[0]?.value, CONTRACT_V2)
+  t.is(res4Results[0]?.changes[0]?.path, '/.sys/contract/source')
+  t.is(res4Results[0]?.changes[0]?.value, CONTRACT_V2)
 
   const res5 = await contract.call('putValue', {path: '/foo', value: 'hello world!'})
   await res5.whenProcessed()

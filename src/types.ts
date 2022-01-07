@@ -13,14 +13,15 @@ export interface ContractCreateOpts {
   executorTestingBehavior?: TestContractExecutorBehavior
 }
 
-export interface LogInclusionProof {
+export interface IndexChange {
+  type: 'put'|'del'
   seq: number
-  hash: Buffer
-  signature: Buffer
+  path: string
+  value: any
 }
 
 export interface OperationResults extends AckSchema {
-  mutations: any[]
+  changes: IndexChange[]
 }
 
 export interface IndexBatchEntry {

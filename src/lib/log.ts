@@ -7,11 +7,11 @@ import Hyperbee from 'hyperbee'
 import * as msgpackr from 'msgpackr'
 import { Readable } from 'streamx'
 import { Operation } from './transactions.js'
+import { BlockInclusionProof } from './proofs.js'
 import {
   OpLogEntry,
   IndexLogListOpts,
   IndexLogEntry,
-  LogInclusionProof,
   IndexBatchEntry,
   IndexHistoryOpts,
   IndexHistoryEntry,
@@ -74,7 +74,7 @@ export class Log extends EventEmitter {
     throw new Error('TODO')
   }
 
-  async getBlockInclusionProof (seq: number): Promise<LogInclusionProof> {
+  async generateBlockInclusionProof (seq: number): Promise<BlockInclusionProof> {
     if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
     const tree = this.core.core.tree
     if (tree.fork !== 0) throw new Error('Tree has been truncated (forked) and is no longer usable')
@@ -83,22 +83,22 @@ export class Log extends EventEmitter {
     const hash = tree.crypto.tree(roots)
     const signableHash = signable(hash, seq + 1, 0)
     const signature = this.core.sign(signableHash)
-    return {seq, hash, signature}
+    return new BlockInclusionProof(this.pubkey, seq, hash, signature)
   }
 
-  async verifyBlockInclusionProof (proof: LogInclusionProof): Promise<void> {
+  async verifyBlockInclusionProof (proof: BlockInclusionProof): Promise<void> {
     if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
     const tree = this.core.core.tree
 
-    const roots = await tree.getRoots(proof.seq)
+    const roots = await tree.getRoots(proof.blockSeq)
     const hash = tree.crypto.tree(roots)
 
-    if (Buffer.compare(proof.hash, hash) !== 0) {
+    if (Buffer.compare(proof.rootHashAtBlock, hash) !== 0) {
       throw new Error('Invalid checksum')
     }
 
-    const signableHash = signable(proof.hash, proof.seq + 1, 0)
-    if (tree.crypto.verify(signableHash, proof.signature, this.pubkey)) {
+    const signableHash = signable(proof.rootHashAtBlock, proof.blockSeq + 1, 0)
+    if (!tree.crypto.verify(signableHash, proof.rootHashSignature, this.pubkey)) {
       throw new Error('Invalid signature')
     }
   }
@@ -144,7 +144,7 @@ export class OpLog extends Log {
     for (let i = 0; i < values.length; i++) {
       const seq = baseSeq + i
       const value = values[i]
-      const proof = await this.getBlockInclusionProof(seq)
+      const proof = await this.generateBlockInclusionProof(seq)
       ops.push(new Operation(this, proof, value))
     }
     return ops
@@ -206,7 +206,7 @@ export class IndexLog extends Log {
       const key = pathToBeekey(entry.path)
       if (entry.type === 'put') {
         await b.put(key, entry.value)
-      } else if (entry.type === 'delete') {
+      } else if (entry.type === 'del') {
         await b.del(key)
       } else {
         throw new Error(`Invalid batch entry type: "${entry.type}"`)

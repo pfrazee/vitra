@@ -22,7 +22,7 @@ import {
   InputSchema,
   AckSchema
 } from '../schemas.js'
-import { parseHyperbeeMessage } from './util/hyper.js'
+import { beekeyToPath } from './util/hyper.js'
 import { Storage } from './storage.js'
 import { Operation, Transaction } from './transactions.js'
 import { IndexLog, OpLog } from './log.js'
@@ -75,8 +75,12 @@ export class Contract extends Resource {
     return !!this.myOplog
   }
 
-  isOplogParticipant (oplog: OpLog): boolean {
-    return this.oplogs.has(oplog)
+  isOplogParticipant (oplog: OpLog|Buffer): boolean {
+    return Buffer.isBuffer(oplog) ? this.oplogs.has(l => l.pubkey.equals(oplog)) : this.oplogs.has(oplog)
+  }
+
+  getParticipant (pubkey: Buffer): OpLog|undefined {
+    return this.oplogs.find(l => l.pubkey.equals(pubkey))
   }
 
   lock (name: string): Promise<() => void> {
@@ -263,8 +267,9 @@ export class Contract extends Resource {
   }
 
   _mapApplyActionsToBatch (actions: ApplyActions): IndexBatchEntry[] {
-    // NOTE this function is called by the executor *and* the monitor and therefore
+    // NOTE This function is called by the executor *and* the monitor and therefore
     //      it must be a pure function. Any outside state will cause validation to fail.
+    //      (It might be a good idea to move this out of the contract class.)
     // -prf
     return Object.entries(actions)
       .map(([path, action]): IndexBatchEntry => {
@@ -301,7 +306,6 @@ export class Contract extends Resource {
   }
 
   async _onOplogChange (entry: InputSchema): Promise<void> {
-    // console.log('_onOplogChange', entry)
     const pubkeyBuf = entry.pubkey
     const oplogIndex = this.oplogs.findIndex(oplog => oplog.pubkey.equals(pubkeyBuf))
     if (oplogIndex === -1 && entry.active) {
@@ -317,21 +321,29 @@ export class Contract extends Resource {
   async _fetchOpAck (op: Operation): Promise<AckSchema|undefined> {
     if (this.closing || this.closed) return
     const pubkey = op.oplog.pubkey
-    const seq = op.proof.seq
+    const seq = op.proof.blockSeq
     const ack = (await this.index.get(genAckPath(pubkey, seq)))?.value
     return ack ? (ack as AckSchema) : undefined
   }
 
-  async _fetchOpMutations (op: Operation): Promise<OperationResults|undefined> {
+  async _fetchOpResults (op: Operation): Promise<OperationResults|undefined> {
     if (this.closing || this.closed) return
     const pubkey = op.oplog.pubkey
-    const seq = op.proof.seq
+    const seq = op.proof.blockSeq
     const ackEntry = await this.index.get(genAckPath(pubkey, seq))
     if (ackEntry && ackEntry.seq) {
-      const results: OperationResults = Object.assign(ackEntry.value, {mutations: []})
+      const results: OperationResults = Object.assign(ackEntry.value, {changes: []})
       if (ackEntry.value.success) {
-        for (let i = ackEntry.seq + 1; i <= ackEntry.seq + results.numMutations; i++) {
-          results.mutations.push(parseHyperbeeMessage(i, await this.index.core.get(i)))
+        for (let i = ackEntry.seq + 1; i <= ackEntry.seq + results.numChanges; i++) {
+          // @ts-ignore debug
+          const node = await this.index.bee.getBlock(i, {})
+          const nodeObj = node.final()
+          results.changes.push({
+            type: node.isDeletion() ? 'del' : 'put',
+            seq: nodeObj.seq,
+            path: `/${beekeyToPath(nodeObj.key)}`,
+            value: nodeObj.value
+          })
         }
       }
       return results

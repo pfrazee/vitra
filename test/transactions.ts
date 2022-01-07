@@ -48,14 +48,13 @@ ava('can await call results (success)', async t => {
     t.is(typeof res1Results[0].seq, 'number')
     t.is(typeof res1Results[0].ts, 'number')
     t.deepEqual(res1Results[0].metadata, {foo: 'bar'})
-    t.is(res1Results[0].numMutations, 1)
-    t.is(res1Results[0].mutations.length, 1)
-    if (res1Results[0].mutations[0]) {
-      t.deepEqual(res1Results[0].mutations[0], {
-        container: false,
+    t.is(res1Results[0].numChanges, 1)
+    t.is(res1Results[0].changes.length, 1)
+    if (res1Results[0].changes[0]) {
+      t.deepEqual(res1Results[0].changes[0], {
+        type: 'put',
         seq: 5,
         path: '/success',
-        name: 'success',
         value: { foo: 'bar' }
       })
     }
@@ -77,8 +76,8 @@ ava('can await call results (failure)', async t => {
     t.is(typeof res1Results[0].seq, 'number')
     t.is(typeof res1Results[0].ts, 'number')
     t.deepEqual(res1Results[0].metadata, {foo: 'bar'})
-    t.is(res1Results[0].numMutations, 0)
-    t.is(res1Results[0].mutations.length, 0)
+    t.is(res1Results[0].numChanges, 0)
+    t.is(res1Results[0].changes.length, 0)
   }
   await contract.close()
 })

@@ -7,6 +7,17 @@ declare module 'hyperbee' {
     async flush ()
   }
 
+  declare interface HyperBeeNodeObj {
+    seq: number
+    key: any
+    value: any
+  }
+
+  declare class HyperBeeNode {
+    isDeletion(): boolean
+    final(): HyperBeeNodeObj
+  }
+
   export default class HyperBee {
     constructor(feed: any, opts?: {});
     keyEncoding: any;
@@ -23,6 +34,7 @@ declare module 'hyperbee' {
     createHistoryStream(opts?: any): any;
     createDiffStream(right: any, opts?: any): any;
     get(key: any, opts?: any): Promise<any>;
+    getBlock(seq: number, opts: any): Promise<HyperBeeNode>
     put(key: any, value: any, opts?: any): Promise<void>;
     batch(opts?: any): Batch;
     del(key: any, opts?: any): Promise<void>;

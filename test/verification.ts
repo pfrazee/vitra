@@ -94,7 +94,7 @@ ava('verification failure: executor skipped an operation', async t => {
   await contract.close()
 })
 
-ava('verification failure: executor op-mutations do not match contract', async t => {
+ava('verification failure: executor op-changes do not match contract', async t => {
   const contract = await Contract.create(new StorageInMemory(), {
     code: {source: SIMPLE_CONTRACT},
     executorTestingBehavior: TestContractExecutorBehavior.WRONG_OP_MUTATIONS

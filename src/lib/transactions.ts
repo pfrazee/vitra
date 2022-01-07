@@ -1,9 +1,9 @@
 import { Contract } from './contract.js'
 import { OpLog } from './log.js'
-import { LogInclusionProof } from '../types.js'
+import { BlockInclusionProof } from './proofs.js'
 
 export class Operation {
-  constructor (public oplog: OpLog, public proof: LogInclusionProof, public value: any) {
+  constructor (public oplog: OpLog, public proof: BlockInclusionProof, public value: any) {
   }
 
   async verifyInclusion () {
@@ -39,6 +39,6 @@ export class Transaction {
   }
 
   async fetchResults () {
-    return await Promise.all(this.ops.map(op => this.contract._fetchOpMutations(op)))
+    return await Promise.all(this.ops.map(op => this.contract._fetchOpResults(op)))
   }
 }

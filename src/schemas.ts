@@ -20,5 +20,5 @@ export interface AckSchema {
   seq: number
   ts: number
   metadata: any
-  numMutations: number
+  numChanges: number
 }

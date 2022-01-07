@@ -7,7 +7,7 @@ ava('batch modifications', async t => {
     {type: 'put', path: '/foo', value: 1},
     {type: 'put', path: 'bar', value: 2},
     {type: 'put', path: '/baz/buz', value: 3},
-    {type: 'delete', path: 'nothing'}
+    {type: 'del', path: 'nothing'}
   ])
   t.is(idx.length, 4)
   await t.throwsAsync(() => idx.dangerousBatch([{type: 'wrong', path: '/foo', value: 100}]))
