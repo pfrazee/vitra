@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "docs": "typedoc --out ./generated-docs src/index.ts && gh-pages -d ./generated-docs && rm -Rf ./generated-docs",
     "test": "ava -s test/*.ts"
   },
   "ava": {
@@ -41,7 +42,9 @@
     "@types/pump": "^1.1.1",
     "@types/streamx": "^2.9.1",
     "ava": "^3.15.0",
+    "gh-pages": "^3.2.3",
     "ts-node": "^10.2.1",
+    "typedoc": "^0.22.10",
     "typescript": "^4.3.5"
   }
 }
