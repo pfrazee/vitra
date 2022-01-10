@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { StorageInMemory, Contract, IndexHistoryEntry } from '../src/index.js'
+import { StorageInMemory, Database, IndexHistoryEntry } from '../src/index.js'
 
 const SIMPLE_CONTRACT = `
 import assert from 'assert'
@@ -23,79 +23,79 @@ export const apply = {
 }
 `
 
-ava('simple full contract run', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+ava('simple full db run', async t => {
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  t.truthy(contract.opened)
-  t.falsy(contract.opening)
-  t.falsy(contract.closing)
-  t.falsy(contract.closed)
-  t.truthy(contract.pubkey)
-  t.truthy(contract.isExecutor)
-  t.truthy(contract.isParticipant)
-  t.truthy(contract.myOplog)
+  t.truthy(db.opened)
+  t.falsy(db.opening)
+  t.falsy(db.closing)
+  t.falsy(db.closed)
+  t.truthy(db.pubkey)
+  t.truthy(db.isExecutor)
+  t.truthy(db.isParticipant)
+  t.truthy(db.myOplog)
 
-  const res1 = await contract.call('get', {path: '/foo'})
-  const res2 = await contract.call('put', {path: '/foo', value: 'hello world'})
-  await contract.executor?.sync()
-  const res3 = await contract.call('get', {path: '/foo'})
+  const res1 = await db.call('get', {path: '/foo'})
+  const res2 = await db.call('put', {path: '/foo', value: 'hello world'})
+  await db.executor?.sync()
+  const res3 = await db.call('get', {path: '/foo'})
   t.falsy(res1.response)
   t.deepEqual(res2.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world' })
   t.is(res3.response.value, 'hello world')
-  await contract.close()
+  await db.close()
 })
 
 ava('successfully runs loaded version', async t => {
   const storage = new StorageInMemory()
-  const contract = await Contract.create(storage, {
-    code: {source: SIMPLE_CONTRACT}
+  const db = await Database.create(storage, {
+    contract: {source: SIMPLE_CONTRACT}
   })
-  const pubkey = contract.pubkey
-  await contract.call('put', {path: '/foo', value: 'hello world'})
-  await contract.call('put', {path: '/bar', value: 'hello world'})
-  await contract.executor?.sync()
+  const pubkey = db.pubkey
+  await db.call('put', {path: '/foo', value: 'hello world'})
+  await db.call('put', {path: '/bar', value: 'hello world'})
+  await db.executor?.sync()
 
-  const contract2 = await Contract.load(storage, pubkey)
+  const contract2 = await Database.load(storage, pubkey)
   const res = await contract2.call('get', {path: '/foo'})
   t.is(res.response.value, 'hello world')
-  await contract.call('put', {path: '/foo', value: 'hello world!!'})
-  await contract.executor?.sync()
+  await db.call('put', {path: '/foo', value: 'hello world!!'})
+  await db.executor?.sync()
   const res2 = await contract2.call('get', {path: '/foo'})
   t.is(res2.response.value, 'hello world!!')
 
-  await contract.close()
+  await db.close()
   await contract2.close()
 })
 
-ava('simple contract run with verification', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+ava('simple db run with verification', async t => {
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const res1 = await contract.call('get', {path: '/foo'})
-  const res2 = await contract.call('put', {path: '/foo', value: 'hello world'})
-  await contract.executor?.sync()
-  const res3 = await contract.call('put', {path: '/foo', value: 'hello world!'})
-  await contract.executor?.sync()
-  const res4 = await contract.call('get', {path: '/foo'})
+  const res1 = await db.call('get', {path: '/foo'})
+  const res2 = await db.call('put', {path: '/foo', value: 'hello world'})
+  await db.executor?.sync()
+  const res3 = await db.call('put', {path: '/foo', value: 'hello world!'})
+  await db.executor?.sync()
+  const res4 = await db.call('get', {path: '/foo'})
   t.falsy(res1.response)
   t.deepEqual(res2.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world' })
   t.deepEqual(res3.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world!' })
   t.is(res4.response.value, 'hello world!')
 
-  await contract.verify()
+  await db.verify()
 
-  await contract.close()
+  await db.close()
 })
 
-ava('simple contract run with active monitoring', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+ava('simple db run with active monitoring', async t => {
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const monitor = await contract.monitor()
+  const monitor = await db.monitor()
   const validationEvents: IndexHistoryEntry[] = []
   const whenValidated = new Promise(resolve => {
     monitor.on('validated', (evt: IndexHistoryEntry) => {
@@ -104,10 +104,10 @@ ava('simple contract run with active monitoring', async t => {
     })
   })
 
-  const res1 = await contract.call('get', {path: '/foo'})
-  const res2 = await contract.call('put', {path: '/foo', value: 'hello world'})
-  await contract.executor?.sync()
-  const res3 = await contract.call('get', {path: '/foo'})
+  const res1 = await db.call('get', {path: '/foo'})
+  const res2 = await db.call('put', {path: '/foo', value: 'hello world'})
+  await db.executor?.sync()
+  const res3 = await db.call('get', {path: '/foo'})
   t.falsy(res1.response)
   t.deepEqual(res2.ops[0].value, { op: 'PUT', path: '/foo', value: 'hello world' })
   t.is(res3.response.value, 'hello world')
@@ -122,5 +122,5 @@ ava('simple contract run with active monitoring', async t => {
   t.is(validationEvents[4].path, '/foo')
 
   await monitor.close()
-  await contract.close()
+  await db.close()
 })

@@ -32,7 +32,7 @@ export class LogForkFraudProof extends FraudProof {
 
   toJSON () {
     return {
-      itoLogForkFraudProof: 1,
+      vitraLogForkFraudProof: 1,
       logPubkey: this.logPubkey.toString('hex'), 
       forkNumber: this.forkNumber,
       blockSeq: this.blockSeq, 
@@ -42,7 +42,7 @@ export class LogForkFraudProof extends FraudProof {
   }
 
   static fromJSON (obj: any): LogForkFraudProof {
-    assert(obj.itoLogForkFraudProof >= 1, 'Invalid schema version')
+    assert(obj.vitraLogForkFraudProof >= 1, 'Invalid schema version')
     assert(typeof obj.logPubkey === 'string' && obj.logPubkey.length === 64, 'Invalid logPubkey')
     assert(typeof obj.forkNumber === 'number', 'Invalid forkNumber')
     assert(typeof obj.blockSeq === 'number', 'Invalid blockSeq')
@@ -78,7 +78,7 @@ export class BlockRewriteFraudProof extends FraudProof {
 
   toJSON () {
     return {
-      itoBlockInclusionFraudProof: 1,
+      vitraBlockInclusionFraudProof: 1,
       description: this.message,
       givenInclusionProof: this.givenInclusionProof.toJSON(),
       violatingInclusionProof: this.violatingInclusionProof.toJSON(),
@@ -86,7 +86,7 @@ export class BlockRewriteFraudProof extends FraudProof {
   }
 
   static fromJSON (obj: any): BlockRewriteFraudProof {
-    assert(obj.itoBlockInclusionFraudProof >= 1, 'Invalid schema version')
+    assert(obj.vitraBlockInclusionFraudProof >= 1, 'Invalid schema version')
     return new BlockRewriteFraudProof(
       obj.description && typeof obj.description === 'string' ? obj.description : '',
       BlockInclusionProof.fromJSON(obj.givenInclusionProof),
@@ -114,14 +114,14 @@ export class ContractFraudProof extends FraudProof {
 
   toJSON () {
     return {
-      itoContractFraudProof: 1,
+      vitraContractFraudProof: 1,
       indexStateProof: this.indexStateProof.toJSON(),
       details: this.details
     }
   }
 
   static fromJSON (obj: any): ContractFraudProof {
-    assert(obj.itoContractFraudProof >= 1, 'Invalid schema version')
+    assert(obj.vitraContractFraudProof >= 1, 'Invalid schema version')
     assert(typeof obj.details?.description === 'string', 'Invalid details.description')
     return new ContractFraudProof(
       BlockInclusionProof.fromJSON(obj.indexStateProof),

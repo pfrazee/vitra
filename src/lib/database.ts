@@ -5,7 +5,7 @@ import { UsageManager } from './util/usage-manager.js'
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as assert from 'assert'
 import {
-  ContractCreateOpts,
+  DatabaseCreateOpts,
   IndexBatchEntry,
   OperationResults,
   ApplyActions,
@@ -32,7 +32,7 @@ import { ContractMonitor } from './monitor.js'
 import { VM } from './vm.js'
 import lock from './util/lock.js'
 
-export class Contract extends Resource {
+export class Database extends Resource {
   storage: Storage
   index: IndexLog
   oplogs: ResourcesManager<OpLog> = new ResourcesManager()
@@ -103,28 +103,28 @@ export class Contract extends Resource {
   // management
   // =
 
-  static async create (storage: Storage|string, opts: ContractCreateOpts): Promise<Contract> {
+  static async create (storage: Storage|string, opts: DatabaseCreateOpts): Promise<Database> {
     if (typeof storage === 'string') storage = new Storage(storage)
     assert.ok(storage instanceof Storage, 'storage is required')
-    assert.equal(typeof opts?.code?.source, 'string', 'opts.code.source is required')
+    assert.equal(typeof opts?.contract?.source, 'string', 'opts.code.source is required')
 
     const index = await IndexLog.create(storage)
-    const contract = new Contract(storage, index)
+    const contract = new Database(storage, index)
     contract.oplogs.add(await OpLog.create(storage, true)) // executor oplog
-    await contract._writeInitBlocks(opts?.code?.source)
+    await contract._writeInitBlocks(opts?.contract?.source)
     await contract.open(opts)
 
     return contract
   }
 
-  static async load (storage: Storage|string, pubkey: Key): Promise<Contract> {
+  static async load (storage: Storage|string, pubkey: Key): Promise<Database> {
     const _storage: Storage = (typeof storage === 'string') ? new Storage(storage) : storage
     assert.ok(_storage instanceof Storage, '_storage is required')
     pubkey = keyToBuf(pubkey) // keyToBuf() will validate the key
 
     const indexCore = await _storage.getHypercore(pubkey)
     const index = new IndexLog(indexCore)
-    const contract = new Contract(_storage, index) 
+    const contract = new Database(_storage, index) 
     const oplogs = await contract.index.listOplogs()
     await Promise.all(oplogs.map(async (oplog) => {
       contract.oplogs.add(new OpLog(await _storage.getHypercore(oplog.pubkey), oplog.executor))
@@ -134,7 +134,7 @@ export class Contract extends Resource {
     return contract
   }
 
-  async _open (opts?: ContractCreateOpts) {
+  async _open (opts?: DatabaseCreateOpts) {
     if (this.isExecutor) {
       if (typeof opts?.executorTestingBehavior === 'number') {
         this.executor = new TestContractExecutor(this, opts.executorTestingBehavior)

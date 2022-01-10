@@ -2,7 +2,7 @@ import assert from 'assert'
 import util from 'util'
 import { Resource } from './util/resource.js'
 import { AwaitLock } from './util/lock.js'
-import { Contract } from './contract.js'
+import { Database } from './database.js'
 import { OpLog } from './log.js'
 import { VM } from './vm.js'
 import { ContractFraudProof, ContractFraudProofDetails } from './fraud-proofs.js'
@@ -43,7 +43,7 @@ export class ContractMonitor extends Resource {
   private _historyGenerator: AsyncGenerator<IndexHistoryEntry>|undefined
   private _queuedEffects: QueuedEffect[] = []
 
-  constructor (public contract: Contract) {
+  constructor (public db: Database) {
     super()
   }
 
@@ -64,7 +64,7 @@ export class ContractMonitor extends Resource {
     assert(!this.verifying, 'Monitor already running verification')
     this.reset()
     this.verifying = true
-    for await (const entry of this.contract.index.history()) {
+    for await (const entry of this.db.index.history()) {
       await this.validate(entry)
     }
     this.verifying = false
@@ -75,7 +75,7 @@ export class ContractMonitor extends Resource {
     this.reset()
     this.verifying = true
     ;(async () => {
-      this._historyGenerator = this.contract.index.history({live: true})
+      this._historyGenerator = this.db.index.history({live: true})
       for await (const entry of this._historyGenerator) {
         try {
           await this.validate(entry)
@@ -215,7 +215,7 @@ export class ContractMonitor extends Resource {
           if (this.vm) {
             await this.vm.close()
           }
-          this.vm = new VM(this.contract, effect.value)
+          this.vm = new VM(this.db, effect.value)
           await this.vm.open()
           await this.vm.restrict()
           break
@@ -232,7 +232,7 @@ export class ContractMonitor extends Resource {
   }
 
   private async replayOp (ack: AckSchema, opValue: any): Promise<IndexBatchEntry[]|{error: boolean, errorMessage: string}> {
-    const release = await this.contract.lock('replayOp')
+    const release = await this.db.lock('replayOp')
     try {
       assert(!!this.vm, 'Contract VM not initialized')
       let applySuccess = undefined
@@ -240,7 +240,7 @@ export class ContractMonitor extends Resource {
       let batch: IndexBatchEntry[] = []
       try {
         const applyRes = await this.vm.contractApply(opValue, ack)
-        batch = this.contract._mapApplyActionsToBatch(applyRes.actions)
+        batch = this.db._mapApplyActionsToBatch(applyRes.actions)
         applySuccess = true
       } catch (e: any) {
         applySuccess = false
@@ -260,13 +260,13 @@ export class ContractMonitor extends Resource {
     try {
       const pubkeyBuf = keyToBuf(pubkey)
       const pubkeyStr = keyToStr(pubkey)
-      let log = this.contract.oplogs.find(log => log.pubkey.equals(pubkeyBuf))
+      let log = this.db.oplogs.find(log => log.pubkey.equals(pubkeyBuf))
       if (log) return log
       
       log = this._oplogs.get(pubkeyStr)
       if (log) return log
       
-      log = new OpLog(await this.contract.storage.getHypercore(pubkeyBuf), false)
+      log = new OpLog(await this.db.storage.getHypercore(pubkeyBuf), false)
       this._oplogs.set(pubkeyStr, log)
       return log
     } finally {
@@ -284,7 +284,7 @@ export class ContractMonitor extends Resource {
       if (error instanceof VerificationError) {
         throw error
       }
-      const fraudProof = new ContractFraudProof(this.contract.index.latestProof, error as ContractFraudProofDetails)
+      const fraudProof = new ContractFraudProof(this.db.index.latestProof, error as ContractFraudProofDetails)
       throw fraudProof
     }
   }

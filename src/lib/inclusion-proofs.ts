@@ -1,10 +1,10 @@
 import assert from 'assert'
 import util from 'util'
-import { Contract } from './contract.js'
+import { Database } from './database.js'
 import { OpLog } from './log.js'
 
 export interface VerifyInclusionProofOpts {
-  contract?: Contract
+  database?: Database
   oplog?: OpLog
 }
 
@@ -13,8 +13,8 @@ export async function verifyInclusionProof (proof: object|BlockInclusionProof, o
   let oplog: OpLog|undefined
   if (opts?.oplog && opts.oplog.pubkey.equals(p.logPubkey)) {
     oplog = opts.oplog
-  } else if (opts?.contract && opts.contract.isOplogParticipant(p.logPubkey)) {
-    oplog = opts.contract.getParticipant(p.logPubkey) as OpLog
+  } else if (opts?.database && opts.database.isOplogParticipant(p.logPubkey)) {
+    oplog = opts.database.getParticipant(p.logPubkey) as OpLog
   } else {
     throw new Error('TODO: fetch oplog from network')
   }
@@ -40,7 +40,7 @@ export class BlockInclusionProof {
 
   toJSON () {
     return {
-      itoBlockInclusionProof: 1,
+      vitraBlockInclusionProof: 1,
       logPubkey: this.logPubkey.toString('hex'), 
       blockSeq: this.blockSeq, 
       rootHashAtBlock: this.rootHashAtBlock.toString('hex'), 
@@ -49,7 +49,7 @@ export class BlockInclusionProof {
   }
 
   static fromJSON (obj: any): BlockInclusionProof {
-    assert(obj.itoBlockInclusionProof >= 1, 'Invalid schema version')
+    assert(obj.vitraBlockInclusionProof >= 1, 'Invalid schema version')
     assert(typeof obj.logPubkey === 'string' && obj.logPubkey.length === 64, 'Invalid logPubkey')
     assert(typeof obj.blockSeq === 'number', 'Invalid blockSeq')
     assert(typeof obj.rootHashAtBlock === 'string', 'Invalid rootHashAtBlock')

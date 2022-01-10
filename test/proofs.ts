@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { StorageInMemory, Contract, verifyInclusionProof, Transaction } from '../src/index.js'
+import { StorageInMemory, Database, verifyInclusionProof, Transaction } from '../src/index.js'
 
 const SIMPLE_CONTRACT = `
 import assert from 'assert'
@@ -19,16 +19,16 @@ export const apply = {
 `
 
 ava('op inclusion proof: valid, successful transaction', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  const tx = await db.call('put', {path: '/foo', value: 'hello world'})
   
   t.is(tx.ops.length, 1)
   await tx.ops[0].verifyInclusion()
   const txOp0Proof = tx.ops[0].proof.toJSON()
-  await verifyInclusionProof(txOp0Proof, {contract})
+  await verifyInclusionProof(txOp0Proof, {database: db})
   
   await tx.whenProcessed()
   
@@ -36,23 +36,23 @@ ava('op inclusion proof: valid, successful transaction', async t => {
   t.is(txObj.isProcessed, true)
   t.is(txObj.operations[0]?.result?.success, true)
   t.is(txObj.operations[0]?.result?.changes?.length, 1)
-  const txClone = Transaction.fromJSON(contract, txObj)
+  const txClone = Transaction.fromJSON(db, txObj)
   await txClone.verifyInclusion()
 
-  await contract.close()
+  await db.close()
 })
 
 ava('op inclusion proof: valid, unsuccessful transaction', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const tx = await contract.call('put', {value: 'hello world'})
+  const tx = await db.call('put', {value: 'hello world'})
   
   t.is(tx.ops.length, 1)
   await tx.ops[0].verifyInclusion()
   const txOp0Proof = tx.ops[0].proof.toJSON()
-  await verifyInclusionProof(txOp0Proof, {contract})
+  await verifyInclusionProof(txOp0Proof, {database: db})
   
   await tx.whenProcessed()
   
@@ -60,27 +60,27 @@ ava('op inclusion proof: valid, unsuccessful transaction', async t => {
   t.is(txObj.isProcessed, true)
   t.is(txObj.operations[0]?.result?.success, false)
   t.is(txObj.operations[0]?.result?.changes?.length, 0)
-  const txClone = Transaction.fromJSON(contract, txObj)
+  const txClone = Transaction.fromJSON(db, txObj)
   await txClone.verifyInclusion()
 
-  await contract.close()
+  await db.close()
 })
 
 ava('fraud proof: oplog forked away an operation after publishing', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  const tx = await db.call('put', {path: '/foo', value: 'hello world'})
   
   t.is(tx.ops.length, 1)
   await tx.ops[0].verifyInclusion()
   const txOp0Proof = tx.ops[0].proof.toJSON()
-  await verifyInclusionProof(txOp0Proof, {contract})
+  await verifyInclusionProof(txOp0Proof, {database: db})
   await tx.whenProcessed()
   
   // use truncate() to remove the operation
-  await contract.myOplog?.core.truncate(0)
+  await db.myOplog?.core.truncate(0)
 
   try {
     await tx.ops[0].verifyInclusion()
@@ -88,36 +88,36 @@ ava('fraud proof: oplog forked away an operation after publishing', async t => {
   } catch (e: any) {
     t.is(e.name, 'LogForkFraudProof')
     const obj: any = e.toJSON()
-    t.is(obj.logPubkey, contract.myOplog?.pubkey.toString('hex'))
+    t.is(obj.logPubkey, db.myOplog?.pubkey.toString('hex'))
     t.is(obj.forkNumber, 1)
     t.is(obj.blockSeq, 0)
     t.truthy(typeof obj.rootHashAtBlock, 'string')
     t.truthy(typeof obj.rootHashSignature, 'string')
   }
 
-  await contract.close()
+  await db.close()
 })
 
 ava('failed validation: oplog removed operation and cannot verify', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  const tx = await db.call('put', {path: '/foo', value: 'hello world'})
   
   t.is(tx.ops.length, 1)
   await tx.ops[0].verifyInclusion()
   const txOp0Proof = tx.ops[0].proof.toJSON()
-  await verifyInclusionProof(txOp0Proof, {contract})
+  await verifyInclusionProof(txOp0Proof, {database: db})
   await tx.whenProcessed()
   
   // mutate the log without using truncate() by replacing it with a log from separate, unsynced storage
   const storage2 = new StorageInMemory()
   // @ts-ignore keyPairs will exist on contract.storage
-  storage2.keyPairs = contract.storage.keyPairs
-  const newCore = await storage2.getHypercore(contract.myOplog?.pubkey as Buffer)
+  storage2.keyPairs = db.storage.keyPairs
+  const newCore = await storage2.getHypercore(db.myOplog?.pubkey as Buffer)
   // @ts-ignore at(0) will exist
-  contract.oplogs.at(0).core = newCore
+  db.oplogs.at(0).core = newCore
 
   try {
     await tx.ops[0].verifyInclusion()
@@ -126,30 +126,30 @@ ava('failed validation: oplog removed operation and cannot verify', async t => {
     t.is(e.name, 'BlocksNotAvailableError')
   }
 
-  await contract.close()
+  await db.close()
 })
 
 ava('fraud proof: oplog removed operation after publishing without forking', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: SIMPLE_CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
   })
 
-  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  const tx = await db.call('put', {path: '/foo', value: 'hello world'})
   
   t.is(tx.ops.length, 1)
   await tx.ops[0].verifyInclusion()
   const txOp0Proof = tx.ops[0].proof.toJSON()
-  await verifyInclusionProof(txOp0Proof, {contract})
+  await verifyInclusionProof(txOp0Proof, {database: db})
   await tx.whenProcessed()
   
   // mutate the log without using truncate() by replacing it with a log from separate, unsynced storage
   const storage2 = new StorageInMemory()
   // @ts-ignore keyPairs will exist on contract.storage
-  storage2.keyPairs = contract.storage.keyPairs
-  const newCore = await storage2.getHypercore(contract.myOplog?.pubkey as Buffer)
+  storage2.keyPairs = db.storage.keyPairs
+  const newCore = await storage2.getHypercore(db.myOplog?.pubkey as Buffer)
   // @ts-ignore at(0) will exist
-  contract.oplogs.at(0).core = newCore
-  await contract.call('put', {path: '/foo', value: 'hello world!'})
+  db.oplogs.at(0).core = newCore
+  await db.call('put', {path: '/foo', value: 'hello world!'})
 
   try {
     await tx.ops[0].verifyInclusion()
@@ -163,5 +163,5 @@ ava('fraud proof: oplog removed operation after publishing without forking', asy
     t.notDeepEqual(obj.givenInclusionProof.rootHashSignature, obj.violatingInclusionProof.rootHashSignature)
   }
 
-  await contract.close()
+  await db.close()
 })

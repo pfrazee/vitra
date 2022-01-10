@@ -8,8 +8,8 @@ export interface ContractCode {
   source: string
 }
 
-export interface ContractCreateOpts {
-  code: ContractCode,
+export interface DatabaseCreateOpts {
+  contract: ContractCode,
   executorTestingBehavior?: TestContractExecutorBehavior
 }
 

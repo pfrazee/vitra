@@ -1,7 +1,7 @@
 {
-  "name": "@ito/ito",
+  "name": "vitra",
   "version": "0.0.1",
-  "description": "A hosted smart-contract runtime using secure ledgers.",
+  "description": "A framework for cooperatively-run databases using smart contracts.",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {

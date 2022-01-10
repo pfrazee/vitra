@@ -2,7 +2,7 @@ import assert from 'assert'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { Sandbox as ConfineSandbox } from 'confine-sandbox'
-import { Contract } from './contract.js'
+import { Database } from './database.js'
 import { keyToStr } from '../types.js'
 import { Resource } from './util/resource.js'
 
@@ -14,7 +14,7 @@ export class VM extends Resource {
   private sandbox: ConfineSandbox|undefined
   private cid: number|undefined
 
-  constructor (public contract: Contract, public source: string) {
+  constructor (public db: Database, public source: string) {
     super()
   }
 
@@ -31,8 +31,8 @@ export class VM extends Resource {
     const {cid} = await this.sandbox.execContainer({
       source: this.source,
       env: {
-        indexPubkey: keyToStr(this.contract.pubkey),
-        oplogPubkey: this.contract.myOplog ? keyToStr(this.contract.myOplog.pubkey) : undefined
+        indexPubkey: keyToStr(this.db.pubkey),
+        oplogPubkey: this.db.myOplog ? keyToStr(this.db.myOplog.pubkey) : undefined
       }
     })
     this.cid = cid
@@ -92,18 +92,18 @@ export class VM extends Resource {
       __internal__: {
         contract: {
           indexList: async (_pubkey: string, prefix: string, opts?: any) => {
-            return await this.contract.index.list(prefix, opts)
+            return await this.db.index.list(prefix, opts)
           },
           indexGet: async (_pubkey: string, key: string) => {
-            return await this.contract.index.get(key)
+            return await this.db.index.get(key)
           },
           oplogGetLength: (pubkey: string) => {
             // TODO
-            return this.contract.myOplog?.core.length
+            return this.db.myOplog?.core.length
           },
           oplogGet: async (pubkey: string, seq: number) => {
             // TODO
-            return await this.contract.myOplog?.get(seq)
+            return await this.db.myOplog?.get(seq)
           }
         }
       }

@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { StorageInMemory, Contract } from '../src/index.js'
+import { StorageInMemory, Database } from '../src/index.js'
 
 const CONTRACT = `
 export async function succeed (_, emit) {
@@ -25,20 +25,20 @@ export const apply = {
 `
 
 ava('process() metadata', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: CONTRACT}
   })
-  await contract.call('succeed', {})
-  await contract.executor?.sync()
-  t.deepEqual((await contract.index.get('/success'))?.value, {foo: 'bar'})
-  await contract.close()
+  await db.call('succeed', {})
+  await db.executor?.sync()
+  t.deepEqual((await db.index.get('/success'))?.value, {foo: 'bar'})
+  await db.close()
 })
 
 ava('can await call results (success)', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: CONTRACT}
   })
-  const res1 = await contract.call('succeed', {})
+  const res1 = await db.call('succeed', {})
   await res1.whenProcessed()
   const res1Results = await res1.fetchResults()
   t.is(res1Results.length, 1)
@@ -59,14 +59,14 @@ ava('can await call results (success)', async t => {
       })
     }
   }
-  await contract.close()
+  await db.close()
 })
 
 ava('can await call results (failure)', async t => {
-  const contract = await Contract.create(new StorageInMemory(), {
-    code: {source: CONTRACT}
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: CONTRACT}
   })
-  const res1 = await contract.call('fail', {})
+  const res1 = await db.call('fail', {})
   await res1.whenProcessed()
   const res1Results = await res1.fetchResults()
   t.is(res1Results.length, 1)
@@ -79,5 +79,5 @@ ava('can await call results (failure)', async t => {
     t.is(res1Results[0].numChanges, 0)
     t.is(res1Results[0].changes.length, 0)
   }
-  await contract.close()
+  await db.close()
 })

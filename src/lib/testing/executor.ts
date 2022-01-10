@@ -1,4 +1,4 @@
-import { Contract } from '../contract.js'
+import { Database } from '../database.js'
 import { ContractExecutor } from '../executor.js'
 import { OpLog } from '../log.js'
 import { IndexBatchEntry, keyToStr } from '../../types.js'
@@ -13,8 +13,8 @@ export enum TestContractExecutorBehavior {
 export class TestContractExecutor extends ContractExecutor {
   private _testingCounter = 0
 
-  constructor (public contract: Contract, public behavior: TestContractExecutorBehavior) {
-    super(contract)
+  constructor (public db: Database, public behavior: TestContractExecutorBehavior) {
+    super(db)
   }
 
   protected async _executeOp (log: OpLog, seq: number, opValue: any) {
@@ -56,7 +56,7 @@ export class TestContractExecutor extends ContractExecutor {
         value: {bad: 'data'}
       }
     ]
-    await this.contract._executeApplyBatch(batch)
+    await this.db._executeApplyBatch(batch)
     this._putLastExecutedSeq(log, seq)
     this.emit('op-executed', log, seq, opValue)
   }

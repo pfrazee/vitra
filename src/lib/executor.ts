@@ -6,7 +6,7 @@ import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as msgpackr from 'msgpackr'
 import { IndexBatchEntry, keyToStr } from '../types.js'
 import { AckSchema, ACK_PATH_PREFIX, genAckPath } from '../schemas.js'
-import { Contract } from './contract.js'
+import { Database } from './database.js'
 import { OpLog, ReadStream } from './log.js'
 
 const OPLOG_WATCH_RETRY_TIMEOUT = 5e3
@@ -21,7 +21,7 @@ export class ContractExecutor extends Resource {
   protected _oplogsWatcher: AsyncGenerator<[string, OpLog]>|undefined
   protected _lastExecutedSeqs: Map<string, number> = new Map()
   protected _oplogReadStreams: Map<string, ReadStream> = new Map()
-  constructor (public contract: Contract) {
+  constructor (public db: Database) {
     super()
   }
 
@@ -34,21 +34,21 @@ export class ContractExecutor extends Resource {
       while (indent.length < opts.indentationLvl) indent += ' '
     }
     return this.constructor.name + '(\n' +
-      indent + '  key: ' + opts.stylize(keyToStr(this.contract.pubkey), 'string') + '\n' +
+      indent + '  key: ' + opts.stylize(keyToStr(this.db.pubkey), 'string') + '\n' +
       indent + '  opened: ' + opts.stylize(this.opened, 'boolean') + '\n' +
       indent + ')'
   }
 
   async _open () {
-    if (!this.contract.isExecutor) {
+    if (!this.db.isExecutor) {
       throw new Error('Not the executor')
     }
-    await this.contract._createVMIfNeeded()
-    for (const log of this.contract.oplogs) {
+    await this.db._createVMIfNeeded()
+    for (const log of this.db.oplogs) {
       this.watchOpLog(log)
     }
     ;(async () => {
-      this._oplogsWatcher = this.contract.oplogs.watch(false)
+      this._oplogsWatcher = this.db.oplogs.watch(false)
       for await (const [evt, log] of this._oplogsWatcher) {
         if (evt === 'added') this.watchOpLog(log)
         if (evt === 'removed') this.unwatchOpLog(log)
@@ -69,22 +69,22 @@ export class ContractExecutor extends Resource {
     const onAdd = (oplog: OpLog) => emit?.(['added', {oplog}])
     const onRemove = (oplog: OpLog) => emit?.(['removed', {oplog}])
     const onOpExecuted = (oplog: OpLog, seq: number, op: any) => emit?.(['op-executed', {oplog, seq, op}])
-    this.contract.oplogs.on('added', onAdd)
-    this.contract.oplogs.on('removed', onRemove)
+    this.db.oplogs.on('added', onAdd)
+    this.db.oplogs.on('removed', onRemove)
     this.on('op-executed', onOpExecuted)
     try {
       while (true) {
         yield await new Promise(resolve => { emit = resolve })
       }
     } finally {
-      this.contract.oplogs.removeListener('added', onAdd)
-      this.contract.oplogs.removeListener('removed', onRemove)
+      this.db.oplogs.removeListener('added', onAdd)
+      this.db.oplogs.removeListener('removed', onRemove)
       this.removeListener('op-executed', onOpExecuted)
     }
   }
 
   async sync () {
-    await Promise.all(this.contract.oplogs.map(oplog => oplog.core.update()))
+    await Promise.all(this.db.oplogs.map(oplog => oplog.core.update()))
     const state = this._captureLogSeqs()
     if (this._hasExecutedAllSeqs(state)) return
     for await (const [evt, info] of this.watch()) {
@@ -98,7 +98,7 @@ export class ContractExecutor extends Resource {
 
   async watchOpLog (log: OpLog) {
     const keystr = keyToStr(log.pubkey)
-    const release = await this.contract.lock(`watchOpLog:${keystr}`)
+    const release = await this.db.lock(`watchOpLog:${keystr}`)
     try {
       if (this._oplogReadStreams.has(keystr)) return
 
@@ -109,11 +109,11 @@ export class ContractExecutor extends Resource {
 
       s.on('data', (entry: {seq: number, value: any}) => this._executeOp(log, entry.seq, msgpackr.unpack(entry.value)))
       s.on('error', (err: any) => {
-        this.contract.emit('error', new AggregateError([err], `An error occurred while reading oplog ${keystr}`))
+        this.db.emit('error', new AggregateError([err], `An error occurred while reading oplog ${keystr}`))
       })
       s.on('close', () => {
         this._oplogReadStreams.delete(keystr)
-        if (!this.contract.closing && !this.contract.closed && this.contract.isOplogParticipant(log)) {
+        if (!this.db.closing && !this.db.closed && this.db.isOplogParticipant(log)) {
           // try again
           setTimeout(() => {
             this.watchOpLog(log)
@@ -141,7 +141,7 @@ export class ContractExecutor extends Resource {
   protected async _readLastExecutedSeq (oplog: OpLog) {
     let seq = -1
     const keystr = keyToStr(oplog.pubkey)
-    const entries = await this.contract.index.list(`${ACK_PATH_PREFIX}${keystr}`)
+    const entries = await this.db.index.list(`${ACK_PATH_PREFIX}${keystr}`)
     for (const entry of entries) {
       seq = Math.max(Number(entry.name), seq)
     }
@@ -158,7 +158,7 @@ export class ContractExecutor extends Resource {
 
   protected _captureLogSeqs (): Map<string, number> {
     const seqs = new Map()
-    for (const log of this.contract.oplogs) seqs.set(keyToStr(log.pubkey), log.length - 1)
+    for (const log of this.db.oplogs) seqs.set(keyToStr(log.pubkey), log.length - 1)
     return seqs
   }
 
@@ -171,12 +171,12 @@ export class ContractExecutor extends Resource {
   }
 
   protected async _executeOp (log: OpLog, seq: number, opValue: any) {
-    const assertStillOpen = () => assert(!this.contract.closing && !this.contract.closed, 'Contract closed')
+    const assertStillOpen = () => assert(!this.db.closing && !this.db.closed, 'Database closed')
 
-    const release = await this.contract.lock('_executeOp')
+    const release = await this.db.lock('_executeOp')
     try {
       assertStillOpen()
-      if (!this.contract.isOplogParticipant(log)) {
+      if (!this.db.isOplogParticipant(log)) {
         console.error('Skipping op from non-participant')
         console.error('  Log:', log)
         console.error('  Op:', opValue)
@@ -197,17 +197,17 @@ export class ContractExecutor extends Resource {
       let batch: IndexBatchEntry[] = []
       let applyError: any
 
-      await this.contract.vmManager.use<void>(async () => {
-        assert(!!this.contract.vm, 'Contract VM not initialized')
+      await this.db.vmManager.use<void>(async () => {
+        assert(!!this.db.vm, 'Contract VM not initialized')
 
         // enter restricted mode
-        await this.contract.vm.restrict()
+        await this.db.vm.restrict()
         assertStillOpen()
 
         // call process() if it exists
         let metadata = undefined
         try {
-          const processRes = await this.contract.vm.contractProcess(opValue)
+          const processRes = await this.db.vm.contractProcess(opValue)
           metadata = processRes.result
         } catch (e: any) {
           if (!e.toString().includes('Method not found: process')) {
@@ -219,8 +219,8 @@ export class ContractExecutor extends Resource {
 
         // call apply()
         try {
-          const applyRes = await this.contract.vm.contractApply(opValue, ack)
-          batch = this.contract._mapApplyActionsToBatch(applyRes.actions)
+          const applyRes = await this.db.vm.contractApply(opValue, ack)
+          batch = this.db._mapApplyActionsToBatch(applyRes.actions)
           applySuccess = true
         } catch (e: any) {
           applyError = e
@@ -229,7 +229,7 @@ export class ContractExecutor extends Resource {
         assertStillOpen()
 
         // leave restricted mode
-        await this.contract.vm.unrestrict()
+        await this.db.vm.unrestrict()
         assertStillOpen()
       })
 
@@ -247,7 +247,7 @@ export class ContractExecutor extends Resource {
         path: genAckPath(log.pubkey, seq),
         value: ack
       })
-      await this.contract._executeApplyBatch(batch)
+      await this.db._executeApplyBatch(batch)
       this._putLastExecutedSeq(log, seq)
 
       this.emit('op-executed', log, seq, opValue)

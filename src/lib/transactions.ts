@@ -1,5 +1,5 @@
 import assert from 'assert'
-import { Contract } from './contract.js'
+import { Database } from './database.js'
 import { OpLog } from './log.js'
 import { BlockInclusionProof } from './inclusion-proofs.js'
 
@@ -13,7 +13,7 @@ export class Operation {
 }
 
 export class Transaction {
-  constructor (public contract: Contract, public response: any, public ops: Operation[]) {
+  constructor (public db: Database, public response: any, public ops: Operation[]) {
   }
 
   async verifyInclusion () {
@@ -40,14 +40,14 @@ export class Transaction {
   }
 
   async fetchAcks () {
-    assert(this.contract, 'Contract not loaded')
-    const c = this.contract as Contract
+    assert(this.db, 'DB not loaded')
+    const c = this.db as Database
     return await Promise.all(this.ops.map(op => c._fetchOpAck(op)))
   }
 
   async fetchResults () {
-    assert(this.contract, 'Contract not loaded')
-    const c = this.contract as Contract
+    assert(this.db, 'DB not loaded')
+    const c = this.db as Database
     return await Promise.all(this.ops.map(op => c._fetchOpResults(op)))
   }
 
@@ -55,8 +55,8 @@ export class Transaction {
     const results = opts?.includeValues ? await this.fetchResults() : await this.fetchAcks()
     const isProcessed = results.reduce((acc, ack) => acc && !!ack, true)
     return {
-      itoTransaction: 1,
-      contractPubkey: this.contract.pubkey.toString('hex'),
+      vitraTransaction: 1,
+      databasePubkey: this.db.pubkey.toString('hex'),
       isProcessed,
       response: opts?.includeValues ? this.response : undefined,
       operations: this.ops.map((op, i) => {
@@ -74,18 +74,18 @@ export class Transaction {
     }
   }
 
-  static fromJSON (contract: Contract, obj: any): Transaction {
-    assert(contract?.opened, 'Contract must be opened')
-    assert(obj.itoTransaction >= 1, 'Invalid schema version')
-    assert(typeof obj.contractPubkey === 'string' && obj.contractPubkey.length === 64, 'Invalid contractPubkey')
+  static fromJSON (db: Database, obj: any): Transaction {
+    assert(db?.opened, 'DB must be opened')
+    assert(obj.vitraTransaction >= 1, 'Invalid schema version')
+    assert(typeof obj.databasePubkey === 'string' && obj.databasePubkey.length === 64, 'Invalid databasePubkey')
     assert(Array.isArray(obj.operations), 'Invalid operations')
     const ops = obj.operations.map((opObj: any, i: number) => {
       assert(opObj.proof && typeof opObj.proof === 'object', `Invalid operations[${i}].proof`)
       const proof = BlockInclusionProof.fromJSON(opObj.proof)
-      const oplog = contract.getParticipant(proof.logPubkey)
-      if (!oplog) throw new Error(`Contract oplog not found: ${proof.logPubkey.toString('hex')}`)
+      const oplog = db.getParticipant(proof.logPubkey)
+      if (!oplog) throw new Error(`Database oplog not found: ${proof.logPubkey.toString('hex')}`)
       return new Operation(oplog, proof, opObj.value)
     })
-    return new Transaction(contract, obj.response, ops)
+    return new Transaction(db, obj.response, ops)
   }
 }
