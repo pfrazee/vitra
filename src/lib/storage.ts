@@ -60,6 +60,8 @@ export class Storage {
 
 export class StorageInMemory extends Storage {
   private loadedCores: Map<string, Hypercore> = new Map()
+  keyPairs: Map<string, StoredKeyPair> = new Map()
+
   constructor () {
     super('')
   }
@@ -72,7 +74,10 @@ export class StorageInMemory extends Storage {
       return existingCore.session()
     }
     
-    const c = new Hypercore(ram, keyToBuf(key))
+    const keyPair = this.keyPairs.get(keyStr)
+    const c = new Hypercore(ram, keyToBuf(key), {
+      keyPair: keyPair?.secretKey ? (keyPair as KeyPair) : undefined
+    })
     this.loadedCores.set(keyStr, c)
     await c.ready()
     return c
@@ -82,6 +87,7 @@ export class StorageInMemory extends Storage {
     const keyPair = crypto.keyPair()
     const c = new Hypercore(ram, keyPair.publicKey, {keyPair})
     this.loadedCores.set(keyToStr(keyPair.publicKey), c)
+    this.keyPairs.set(keyToStr(keyPair.publicKey), keyPair)
     await c.ready()
     return c
   }

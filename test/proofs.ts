@@ -66,17 +66,102 @@ ava('op inclusion proof: valid, unsuccessful transaction', async t => {
   await contract.close()
 })
 
-ava.skip('op inclusion proof: invalid, oplog removed operation after publishing', async t => {
+ava('fraud proof: oplog forked away an operation after publishing', async t => {
+  const contract = await Contract.create(new StorageInMemory(), {
+    code: {source: SIMPLE_CONTRACT}
+  })
+
+  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  
+  t.is(tx.ops.length, 1)
+  await tx.ops[0].verifyInclusion()
+  const txOp0Proof = tx.ops[0].proof.toJSON()
+  await verifyInclusionProof(txOp0Proof, {contract})
+  await tx.whenProcessed()
+  
+  // use truncate() to remove the operation
+  await contract.myOplog?.core.truncate(0)
+
+  try {
+    await tx.ops[0].verifyInclusion()
+    t.fail('Fraud not detected')
+  } catch (e: any) {
+    t.is(e.name, 'LogForkFraudProof')
+    const obj: any = e.toJSON()
+    t.is(obj.logPubkey, contract.myOplog?.pubkey.toString('hex'))
+    t.is(obj.forkNumber, 1)
+    t.is(obj.blockSeq, 0)
+    t.truthy(typeof obj.rootHashAtBlock, 'string')
+    t.truthy(typeof obj.rootHashSignature, 'string')
+  }
+
+  await contract.close()
 })
 
-ava.skip('fraud proof: oplog broke append-only', async t => {
-  // TODO
+ava('failed validation: oplog removed operation and cannot verify', async t => {
+  const contract = await Contract.create(new StorageInMemory(), {
+    code: {source: SIMPLE_CONTRACT}
+  })
+
+  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  
+  t.is(tx.ops.length, 1)
+  await tx.ops[0].verifyInclusion()
+  const txOp0Proof = tx.ops[0].proof.toJSON()
+  await verifyInclusionProof(txOp0Proof, {contract})
+  await tx.whenProcessed()
+  
+  // mutate the log without using truncate() by replacing it with a log from separate, unsynced storage
+  const storage2 = new StorageInMemory()
+  // @ts-ignore keyPairs will exist on contract.storage
+  storage2.keyPairs = contract.storage.keyPairs
+  const newCore = await storage2.getHypercore(contract.myOplog?.pubkey as Buffer)
+  // @ts-ignore at(0) will exist
+  contract.oplogs.at(0).core = newCore
+
+  try {
+    await tx.ops[0].verifyInclusion()
+    t.fail('Fraud not detected')
+  } catch (e: any) {
+    t.is(e.name, 'BlocksNotAvailableError')
+  }
+
+  await contract.close()
 })
 
-ava.skip('fraud proof: index broke append-only', async t => {
-  // TODO
-})
+ava('fraud proof: oplog removed operation after publishing without forking', async t => {
+  const contract = await Contract.create(new StorageInMemory(), {
+    code: {source: SIMPLE_CONTRACT}
+  })
 
-ava.skip('fraud proof: executor broke contract', async t => {
-  // TODO
+  const tx = await contract.call('put', {path: '/foo', value: 'hello world'})
+  
+  t.is(tx.ops.length, 1)
+  await tx.ops[0].verifyInclusion()
+  const txOp0Proof = tx.ops[0].proof.toJSON()
+  await verifyInclusionProof(txOp0Proof, {contract})
+  await tx.whenProcessed()
+  
+  // mutate the log without using truncate() by replacing it with a log from separate, unsynced storage
+  const storage2 = new StorageInMemory()
+  // @ts-ignore keyPairs will exist on contract.storage
+  storage2.keyPairs = contract.storage.keyPairs
+  const newCore = await storage2.getHypercore(contract.myOplog?.pubkey as Buffer)
+  // @ts-ignore at(0) will exist
+  contract.oplogs.at(0).core = newCore
+  await contract.call('put', {path: '/foo', value: 'hello world!'})
+
+  try {
+    await tx.ops[0].verifyInclusion()
+    t.fail('Fraud not detected')
+  } catch (e: any) {
+    t.is(e.name, 'BlockRewriteFraudProof')
+    const obj: any = e.toJSON()
+    t.is(obj.givenInclusionProof.logPubkey, obj.violatingInclusionProof.logPubkey)
+    t.is(obj.givenInclusionProof.blockSeq, obj.violatingInclusionProof.blockSeq)
+    t.notDeepEqual(obj.givenInclusionProof.rootHashAtBlock, obj.violatingInclusionProof.rootHashAtBlock)
+    t.notDeepEqual(obj.givenInclusionProof.rootHashSignature, obj.violatingInclusionProof.rootHashSignature)
+  }
+
+  await contract.close()
 })

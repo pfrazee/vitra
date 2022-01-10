@@ -1,9 +1,11 @@
 import assert from 'assert'
+import util from 'util'
 import { Resource } from './util/resource.js'
 import { AwaitLock } from './util/lock.js'
 import { Contract } from './contract.js'
 import { OpLog } from './log.js'
 import { VM } from './vm.js'
+import { ContractFraudProof, ContractFraudProofDetails } from './fraud-proofs.js'
 import { IndexHistoryEntry, OpLogEntry, IndexBatchEntry, Key, keyToStr, keyToBuf } from '../types.js'
 import {
   CONTRACT_SOURCE_PATH,
@@ -21,7 +23,6 @@ enum MonitorState {
   AWAITING_TX,
   VALIDATING_TX
 }
-type Constructor = new (...args: any[]) => Object;
 
 interface QueuedEffect {
   effect: 'set-vm'|'add-input'|'remove-input'
@@ -102,10 +103,10 @@ export class ContractMonitor extends Resource {
   }
 
   private async validate (entry: IndexHistoryEntry) {
-    this.assert(entry.seq === this.expectedSeq, UnexpectedSeqError, entry, this.expectedSeq)
+    this.assert(entry.seq === this.expectedSeq, new UnexpectedSeqError({entry, expectedSeq: this.expectedSeq}))
     switch (this.state) {
       case MonitorState.VALIDATING_GENESIS_SOURCE: {
-        this.assert(entry.path === CONTRACT_SOURCE_PATH, UnexpectedPathError, entry, CONTRACT_SOURCE_PATH)
+        this.assert(entry.path === CONTRACT_SOURCE_PATH, new UnexpectedPathError({entry, expectedPath: CONTRACT_SOURCE_PATH}))
         this.validateContractSourceChange(entry)
         await this.transition(MonitorState.VALIDATING_GENESIS_INPUTS)
         break
@@ -115,23 +116,23 @@ export class ContractMonitor extends Resource {
           this.validateInputChange(entry)
         } else if (entry.path === GENESIS_ACK_PATH) {
           await this.transition(MonitorState.AWAITING_TX)
-          this.assert(this.inputs.size > 0, NoGenesisInputsDeclaredError)
+          this.assert(this.inputs.size > 0, new NoGenesisInputsDeclaredError())
         } else {
-          throw new UnexpectedPathError(entry, `${GENESIS_ACK_PATH} or a child of ${PARTICIPANT_PATH_PREFIX}`)
+          throw new UnexpectedPathError({entry, expectedPath: `${GENESIS_ACK_PATH} or a child of ${PARTICIPANT_PATH_PREFIX}`})
         }
         break
       }
       case MonitorState.AWAITING_TX: {
-        this.assert(entry.path.startsWith(ACK_PATH_PREFIX), ChangeNotProducedByMonitorError, entry)
+        this.assert(entry.path.startsWith(ACK_PATH_PREFIX), new ChangeNotProducedByMonitorError({entry}))
         this.validateAck(entry)
 
         const ackValue = entry.value as AckSchema
         const op = await this.fetchOp(ackValue.origin, ackValue.seq)
-        this.assert(!!op, CannotFetchOpError, entry)
+        this.assert(!!op, new CannotFetchOpError({entry}))
 
         const replayRes = await this.replayOp(ackValue, (op as OpLogEntry).value)
         if ('error' in replayRes) {
-          this.assert(ackValue.success === false, MonitorApplyFailedError, entry, replayRes.errorMessage)
+          this.assert(ackValue.success === false, new MonitorApplyFailedError({entry, errorMessage: replayRes.errorMessage}))
         } else {
           this.expectedChanges = (replayRes as IndexBatchEntry[])
         }
@@ -140,9 +141,9 @@ export class ContractMonitor extends Resource {
         break
       }
       case MonitorState.VALIDATING_TX: {
-        const expectedChange = this.expectedChanges.shift()
-        this.assert(!entry.path.startsWith(ACK_PATH_PREFIX), ChangeNotProducedByExecutorError, entry, expectedChange)
-        this.validateChange(entry, expectedChange as IndexBatchEntry)
+        const expectedChange = this.expectedChanges.shift() as IndexBatchEntry
+        this.assert(!entry.path.startsWith(ACK_PATH_PREFIX), new ChangeNotProducedByExecutorError({entry, expectedChange}))
+        this.validateChange(entry, expectedChange)
         if (this.expectedChanges.length === 0){
           await this.transition(MonitorState.AWAITING_TX)
         }
@@ -154,19 +155,19 @@ export class ContractMonitor extends Resource {
   }
 
   private validateAck (entry: IndexHistoryEntry) {
-    this.assert(entry.value && typeof entry.value === 'object', UnexpectedValueError, entry, 'value to be an object')
+    this.assert(entry.value && typeof entry.value === 'object', new InvalidSchemaError({entry, description: 'value to be an object'}))
     const ackValue = entry.value as AckSchema
-    this.assert(typeof ackValue.success === 'boolean', UnexpectedValueError, entry, '.success to be a boolean')
-    this.assert(typeof ackValue.origin === 'string' && ackValue.origin.length === 64, UnexpectedValueError, entry, '.origin to be a 64-character utf-8 string')
-    this.assert(typeof ackValue.seq === 'number', UnexpectedValueError, entry, '.seq to be a number')
-    this.assert(typeof ackValue.ts === 'number', UnexpectedValueError, entry, '.ts to be a number')
-    this.assert(this.inputs.has(ackValue.origin), NonParticipantError, entry, ackValue.origin)
-    this.assert(this.getNextOplogSeqToProcess(ackValue.origin) === ackValue.seq, ProcessedOutOfOrderError, entry, ackValue.origin, this.getNextOplogSeqToProcess(ackValue.origin), ackValue.seq)
+    this.assert(typeof ackValue.success === 'boolean', new InvalidSchemaError({entry, description: '.success to be a boolean'}))
+    this.assert(typeof ackValue.origin === 'string' && ackValue.origin.length === 64, new InvalidSchemaError({entry, description: '.origin to be a 64-character utf-8 string'}))
+    this.assert(typeof ackValue.seq === 'number', new InvalidSchemaError({entry, description: '.seq to be a number'}))
+    this.assert(typeof ackValue.ts === 'number', new InvalidSchemaError({entry, description: '.ts to be a number'}))
+    this.assert(this.inputs.has(ackValue.origin), new NonParticipantError({entry, oplogPubkey: ackValue.origin}))
+    this.assert(this.getNextOplogSeqToProcess(ackValue.origin) === ackValue.seq, new ProcessedOutOfOrderError({entry, oplogPubkey: ackValue.origin, expectedSeq: this.getNextOplogSeqToProcess(ackValue.origin), executedSeq: ackValue.seq}))
     this.setOplogSeqProcessed(ackValue.origin, ackValue.seq)
     if (ackValue.success) {
-      this.assert(typeof ackValue.numChanges === 'number', UnexpectedValueError, entry, '.numChanges to be a number')
+      this.assert(typeof ackValue.numChanges === 'number', new InvalidSchemaError({entry, description: '.numChanges to be a number'}))
     } else {
-      this.assert(typeof ackValue.error === 'string' || typeof ackValue.error === 'undefined', UnexpectedValueError, entry, '.error to be a string or undefined')
+      this.assert(typeof ackValue.error === 'string' || typeof ackValue.error === 'undefined', new InvalidSchemaError({entry, description: '.error to be a string or undefined'}))
     }
   }
 
@@ -180,26 +181,26 @@ export class ContractMonitor extends Resource {
     this._oplogProcessedSeqs.set(pubkey, seq)
   }
 
-  private validateChange (entry: IndexHistoryEntry, change: IndexBatchEntry) {
-    this.assert(entry.type === change.type, ChangeMismatchError, entry, change, 'Change type is different.')
-    this.assert(entry.path === change.path, ChangeMismatchError, entry, change, 'Change path is different.')
-    this.assert(_isEqual(entry.value, change.value), ChangeMismatchError, entry, change, 'Change value is different.')
+  private validateChange (entry: IndexHistoryEntry, expectedChange: IndexBatchEntry) {
+    this.assert(entry.type === expectedChange.type, new ChangeMismatchError({entry, expectedChange, description: 'Change type is different.'}))
+    this.assert(entry.path === expectedChange.path, new ChangeMismatchError({entry, expectedChange, description: 'Change path is different.'}))
+    this.assert(_isEqual(entry.value, expectedChange.value), new ChangeMismatchError({entry, expectedChange, description: 'Change value is different.'}))
     if (entry.path === CONTRACT_SOURCE_PATH) this.validateContractSourceChange(entry)
     if (entry.path.startsWith(PARTICIPANT_PATH_PREFIX)) this.validateInputChange(entry)
   }
 
   private validateContractSourceChange (entry: IndexHistoryEntry) {
-    this.assert(typeof entry.value === 'string' && entry.value.length, UnexpectedValueError, entry, 'a utf-8 string')
+    this.assert(typeof entry.value === 'string' && entry.value.length, new InvalidSchemaError({entry, description: 'a utf-8 string'}))
     this._queuedEffects.push({effect: 'set-vm', value: entry.value})
   }
 
   private validateInputChange (entry: IndexHistoryEntry) {
-    this.assert(entry.value && typeof entry.value === 'object', UnexpectedValueError, entry, 'value to be an object')
+    this.assert(entry.value && typeof entry.value === 'object', new InvalidSchemaError({entry, description: 'value to be an object'}))
     const inputValue = entry.value as InputSchema
-    this.assert(Buffer.isBuffer(inputValue.pubkey), UnexpectedValueError, entry, '.pubkey to be a buffer')
-    this.assert(inputValue.pubkey?.byteLength === 32, UnexpectedValueError, entry, '.pubkey to be a buffer of 32 bytes')
-    this.assert(typeof inputValue.executor === 'boolean', UnexpectedValueError, entry, '.executor to be a boolean')
-    this.assert(typeof inputValue.active === 'boolean', UnexpectedValueError, entry, '.active to be a boolean')
+    this.assert(Buffer.isBuffer(inputValue.pubkey), new InvalidSchemaError({entry, description: '.pubkey to be a buffer'}))
+    this.assert(inputValue.pubkey?.byteLength === 32, new InvalidSchemaError({entry, description: '.pubkey to be a buffer of 32 bytes'}))
+    this.assert(typeof inputValue.executor === 'boolean', new InvalidSchemaError({entry, description: '.executor to be a boolean'}))
+    this.assert(typeof inputValue.active === 'boolean', new InvalidSchemaError({entry, description: '.active to be a boolean'}))
     if (inputValue.active) {
       this._queuedEffects.push({effect: 'add-input', value: keyToStr(inputValue.pubkey)})
     } else {
@@ -278,86 +279,101 @@ export class ContractMonitor extends Resource {
     return await log.get(seq)
   }
 
-  private assert (cond: any, cons: Constructor, ...args: any[]) {
+  private assert (cond: any, error: VerificationError|ContractFraudProofDetails) {
     if (!cond) {
-      throw new cons(...args)
+      if (error instanceof VerificationError) {
+        throw error
+      }
+      const fraudProof = new ContractFraudProof(this.contract.index.latestProof, error as ContractFraudProofDetails)
+      throw fraudProof
     }
   }
 }
 
-export class BaseError extends Error {
-  name: string;
-  data: any;
+export class VerificationError extends Error {
+  name: string
+  data: any
 
   constructor (message: string, data?: any) {
     super(message)
     this.name = this.constructor.name
     this.data = data
   }
+
+  [util.inspect.custom] (depth: number, opts: {indentationLvl: number, stylize: Function}) {
+    let indent = ''
+    if (opts.indentationLvl) {
+      while (indent.length < opts.indentationLvl) indent += ' '
+    }
+    return this.constructor.name + '(\n' +
+      indent + '  An issue occurred during verification. This does not indicate that the contract was violated, but that verification failed to complete.\n' +
+      indent + '  message: ' + opts.stylize(this.message, 'string') + '\n' +
+      indent + ')'
+  }
 }
 
-export class UnexpectedSeqError extends BaseError {
-  constructor (entry: IndexHistoryEntry, expectedSeq: number) {
+export class UnexpectedSeqError extends VerificationError {
+  constructor ({entry, expectedSeq}: {entry: IndexHistoryEntry, expectedSeq: number}) {
     super(`Unexpected message seq. Expected ${expectedSeq}, received ${entry.seq}`, {entry, expectedSeq})
   }
 }
 
-export class UnexpectedPathError extends BaseError {
-  constructor (entry: IndexHistoryEntry, expectedPath: string) {
-    super(`Unexpected message path. Expected ${expectedPath}, received ${entry.path}`, {entry, expectedPath})
+export class CannotFetchOpError extends VerificationError {
+  constructor ({entry}: {entry: IndexHistoryEntry}) {
+    super(`Failed to fetch op from ${entry.value.origin} at seq ${entry.value.seq}`, {entry})
   }
 }
 
-export class UnexpectedValueError extends BaseError {
-  constructor (entry: IndexHistoryEntry, description: string) {
-    super(`Unexpected message value. Expected ${description}`, {entry})
-  }
-}
-
-export class MonitorApplyFailedError extends BaseError {
-  constructor (entry: IndexHistoryEntry, errorMessage: string) {
-    super(`The monitor expected the operation to fail but the executor successfully processed it. ${errorMessage}`, {entry, errorMessage})
-  }
-}
-
-export class ChangeNotProducedByMonitorError extends BaseError {
-  constructor (entry: IndexHistoryEntry) {
-    super(`The executor produced a change which the monitor did not expect.`, {entry})
-  }
-}
-
-export class ChangeNotProducedByExecutorError extends BaseError {
-  constructor (entry: IndexHistoryEntry, expectedChange: IndexBatchEntry) {
-    super(`The executor did not produce a change which the monitor expected.`, {entry, expectedChange})
-  }
-}
-
-export class ChangeMismatchError extends BaseError {
-  constructor (entry: IndexHistoryEntry, expectedChange: IndexBatchEntry, description: string) {
-    super(`The executor produced a change which is different than the change expected by the monitor. ${description}`, {entry, expectedChange})
-  }
-}
-
-export class ProcessedOutOfOrderError extends BaseError {
-  constructor (entry: IndexHistoryEntry, oplogPubkey: string, expectedSeq: number, executedSeq: number) {
-    super(`The executor processed an operation out of order. Expected to process ${expectedSeq} but actually processed ${executedSeq} for oplog ${oplogPubkey}`, {entry, oplogPubkey, expectedSeq, executedSeq})
-  }
-}
-
-export class NonParticipantError extends BaseError {
-  constructor (entry: IndexHistoryEntry, oplogPubkey: string) {
-    super(`The executor processed an operation from an oplog which is not a declared participant, oplog = ${oplogPubkey}`, {entry, oplogPubkey})
-  }
-}
-
-export class NoGenesisInputsDeclaredError extends BaseError {
+export class NoGenesisInputsDeclaredError extends ContractFraudProofDetails {
   constructor () {
     super(`No input oplogs declared in genesis sequence`)
   }
 }
 
-export class CannotFetchOpError extends BaseError {
-  constructor (entry: IndexHistoryEntry) {
-    super(`Failed to fetch op from ${entry.value.origin} at seq ${entry.value.seq}`, {entry})
+export class UnexpectedPathError extends ContractFraudProofDetails {
+  constructor ({entry, expectedPath}: {entry: IndexHistoryEntry, expectedPath: string}) {
+    super(`Unexpected message path. Expected ${expectedPath}, received ${entry.path}`, {entry, expectedPath})
+  }
+}
+
+export class InvalidSchemaError extends ContractFraudProofDetails {
+  constructor ({entry, description}: {entry: IndexHistoryEntry, description: string}) {
+    super(`Unexpected message value. Expected ${description}`, {entry})
+  }
+}
+
+export class MonitorApplyFailedError extends ContractFraudProofDetails {
+  constructor ({entry, errorMessage}: {entry: IndexHistoryEntry, errorMessage: string}) {
+    super(`The monitor expected the operation to fail but the executor successfully processed it. ${errorMessage}`, {entry, errorMessage})
+  }
+}
+
+export class ChangeNotProducedByMonitorError extends ContractFraudProofDetails {
+  constructor ({entry}: {entry: IndexHistoryEntry}) {
+    super(`The executor produced a change which the monitor did not expect.`, {entry})
+  }
+}
+
+export class ChangeNotProducedByExecutorError extends ContractFraudProofDetails {
+  constructor ({entry, expectedChange}: {entry: IndexHistoryEntry, expectedChange: IndexBatchEntry}) {
+    super(`The executor did not produce a change which the monitor expected.`, {entry, expectedChange})
+  }
+}
+
+export class ChangeMismatchError extends ContractFraudProofDetails {
+  constructor ({entry, expectedChange, description}: {entry: IndexHistoryEntry, expectedChange: IndexBatchEntry, description: string}) {
+    super(`The executor produced a change which is different than the change expected by the monitor. ${description}`, {entry, expectedChange})
+  }
+}
+
+export class ProcessedOutOfOrderError extends ContractFraudProofDetails {
+  constructor ({entry, oplogPubkey, expectedSeq, executedSeq}: {entry: IndexHistoryEntry, oplogPubkey: string, expectedSeq: number, executedSeq: number}) {
+    super(`The executor processed an operation out of order. Expected to process ${expectedSeq} but actually processed ${executedSeq} for oplog ${oplogPubkey}`, {entry, oplogPubkey, expectedSeq, executedSeq})
+  }
+}
+
+export class NonParticipantError extends ContractFraudProofDetails {
+  constructor ({entry, oplogPubkey}: {entry: IndexHistoryEntry, oplogPubkey: string}) {
+    super(`The executor processed an operation from an oplog which is not a declared participant, oplog = ${oplogPubkey}`, {entry, oplogPubkey})
   }
 }

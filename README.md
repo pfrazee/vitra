@@ -22,14 +22,14 @@ A hosted smart-contract runtime using secure ledgers. [Read the white paper](./d
   - [ ] Flows for creating oplogs
   - [x] Await transaction processing
   - [ ] Networking
-- [ ] Implement verification
-  - [ ] Append-only constraint violation detection
+- [x] Implement verification
+  - [x] Append-only constraint violation detection
   - [x] Log replay
-- [ ] Implement compact (shareable) proof generation
-  - [ ] Operation inclusion proofs
-  - [ ] Fraud proofs
-    - [ ] Append-only violations
-    - [ ] Contract violations
+- [x] Implement compact (shareable) proof generation
+  - [x] Operation inclusion proofs
+  - [x] Fraud proofs
+    - [x] Append-only violations
+    - [x] Contract violations
 - [x] Implement monitoring
 - [x] Additional tests
   - [x] Participant changes
@@ -82,6 +82,10 @@ Calls to a contract (transactions) may produce one or more operations, and each 
 Inclusion proofs are comprised of a log message's sequence number, the root hash of the log's merkle tree, and a signature over the root hash by the log's keypair. We can use the inclusion proof to independently verify that a log message was published by a log, and to prove mischief if the log owner ever attempts to unpublish a message.
 
 ITO can easily generate an inclusion proof for *operations* when handling a transaction because there's a local interactive session with the participant that's executing the transaction. For the *results* published to the index log, there's no guarantee of an interactive session as the participant may not be the executor. The Hypercore protocol has mechanisms for requesting log inclusion proofs over a connection (this is fundamental to the protocol) but the implementation embeds this in the replication logic and does not currently include APIs to fetch proofs for random messages in a log. By adding those APIs to Hypercore, we can add transaction-result inclusion proofs to ITO's API.
+
+### Additional append-only fraud proof detection
+
+Violations to the append-only constraint are currently detected when verifying an inclusion proof. It is possible to detect append-only violations more aggressively by checking for them during replication. (In this framework, forking explicitly with Hypercore's truncate() API and forking implicitly with split logs are both considered violations.)
 
 ### Native-code contract runtime
 

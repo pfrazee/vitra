@@ -1,5 +1,4 @@
 import ava from 'ava'
-import { StorageInMemory, Contract, BaseError, TestContractExecutorBehavior } from '../src/index.js'
 
 ava.skip('can create test sandboxes of active contracts without affecting the active deployment', async t => {
   // TODO

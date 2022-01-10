@@ -1,7 +1,7 @@
 import assert from 'assert'
 import { Contract } from './contract.js'
 import { OpLog } from './log.js'
-import { BlockInclusionProof } from './proofs.js'
+import { BlockInclusionProof } from './inclusion-proofs.js'
 
 export class Operation {
   constructor (public oplog: OpLog, public proof: BlockInclusionProof, public value: any) {

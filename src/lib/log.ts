@@ -7,7 +7,9 @@ import Hyperbee from 'hyperbee'
 import * as msgpackr from 'msgpackr'
 import { Readable } from 'streamx'
 import { Operation } from './transactions.js'
-import { BlockInclusionProof } from './proofs.js'
+import { BlockInclusionProof } from './inclusion-proofs.js'
+import { BlockRewriteFraudProof, LogForkFraudProof } from './fraud-proofs.js'
+import { InvalidBlockInclusionProofError, BlocksNotAvailableError } from './errors.js'
 import {
   OpLogEntry,
   IndexLogListOpts,
@@ -63,11 +65,20 @@ export class Log extends EventEmitter {
   }
 
   async close () {
+    // TODO
     // return this.core.close()
   }
 
   equals (log: Log) {
     return this.pubkey.equals(log.pubkey)
+  }
+
+  get latestProof () {
+    if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
+    const tree = this.core.core.tree
+    const seq = this.core.length
+    const hash = tree.crypto.tree(tree.roots)
+    return new BlockInclusionProof(this.pubkey, seq, hash, tree.signature)
   }
 
   async syncLatest () {
@@ -77,12 +88,14 @@ export class Log extends EventEmitter {
   async generateBlockInclusionProof (seq: number): Promise<BlockInclusionProof> {
     if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
     const tree = this.core.core.tree
-    if (tree.fork !== 0) throw new Error('Tree has been truncated (forked) and is no longer usable')
-
-    const roots = await tree.getRoots(seq)
+    
+    const roots = await tree.getRoots(seq + 1)
     const hash = tree.crypto.tree(roots)
     const signableHash = signable(hash, seq + 1, 0)
     const signature = this.core.sign(signableHash)
+    if (tree.fork !== 0) {
+      throw new LogForkFraudProof(this.pubkey, tree.fork, seq, hash, signature)
+    }
     return new BlockInclusionProof(this.pubkey, seq, hash, signature)
   }
 
@@ -90,16 +103,27 @@ export class Log extends EventEmitter {
     if (!this.core?.core?.tree) throw new Error('Hypercore not initialized')
     const tree = this.core.core.tree
 
-    const roots = await tree.getRoots(proof.blockSeq)
-    const hash = tree.crypto.tree(roots)
-
-    if (Buffer.compare(proof.rootHashAtBlock, hash) !== 0) {
-      throw new Error('Invalid checksum')
+    if (tree.fork !== 0) {
+      const seq = this.core.length
+      const hash = tree.crypto.tree(tree.roots)
+      throw new LogForkFraudProof(this.pubkey, tree.fork, seq, hash, tree.signature)
     }
+
+    if ((this.core.length - 1) < proof.blockSeq) {
+      throw new BlocksNotAvailableError(this.pubkey, proof.blockSeq, this.core.length)
+    }
+
+    const roots = await tree.getRoots(proof.blockSeq + 1)
+    const hash = tree.crypto.tree(roots)
 
     const signableHash = signable(proof.rootHashAtBlock, proof.blockSeq + 1, 0)
     if (!tree.crypto.verify(signableHash, proof.rootHashSignature, this.pubkey)) {
-      throw new Error('Invalid signature')
+      throw new InvalidBlockInclusionProofError('Invalid signature')
+    }
+
+    if (Buffer.compare(proof.rootHashAtBlock, hash) !== 0) {
+      const violatingProof = await this.generateBlockInclusionProof(proof.blockSeq)
+      throw new BlockRewriteFraudProof('Checksums do not match', proof, violatingProof)
     }
   }
 

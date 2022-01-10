@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { StorageInMemory, Contract, OpLog, BaseError, TestContractExecutorBehavior } from '../src/index.js'
+import { StorageInMemory, Contract, OpLog, ContractFraudProof, TestContractExecutorBehavior } from '../src/index.js'
 
 const SIMPLE_CONTRACT = `
 import assert from 'assert'
@@ -27,9 +27,9 @@ ava('verification failure: executor processed an op multiple times', async t => 
   })
 
   const monitor = await contract.monitor()
-  const violations: BaseError[] = []
+  const violations: ContractFraudProof[] = []
   const whenViolated = new Promise(resolve => {
-    monitor.on('violation', (evt: BaseError) => {
+    monitor.on('violation', (evt: ContractFraudProof) => {
       violations.push(evt)
       resolve(undefined)
     })
@@ -40,16 +40,16 @@ ava('verification failure: executor processed an op multiple times', async t => 
 
   await whenViolated
   t.is(violations.length, 1)
-  t.is(violations[0].name, 'ProcessedOutOfOrderError')
-  t.is(violations[0].data.expectedSeq as number, 1)
-  t.is(violations[0].data.executedSeq as number, 0)
+  t.is(violations[0].details.code, 'ProcessedOutOfOrderError')
+  t.is(violations[0].details.data.expectedSeq as number, 1)
+  t.is(violations[0].details.data.executedSeq as number, 0)
 
   try {
     await contract.verify()
   } catch (violation: any) {
-    t.is(violation.name, 'ProcessedOutOfOrderError')
-    t.is(violation.data.expectedSeq as number, 1)
-    t.is(violation.data.executedSeq as number, 0)
+    t.is(violation.details.code, 'ProcessedOutOfOrderError')
+    t.is(violation.details.data.expectedSeq as number, 1)
+    t.is(violation.details.data.executedSeq as number, 0)
   }
 
   await monitor.close()
@@ -63,9 +63,9 @@ ava('verification failure: executor skipped an operation', async t => {
   })
 
   const monitor = await contract.monitor()
-  const violations: BaseError[] = []
+  const violations: ContractFraudProof[] = []
   const whenViolated = new Promise(resolve => {
-    monitor.on('violation', (evt: BaseError) => {
+    monitor.on('violation', (evt: ContractFraudProof) => {
       violations.push(evt)
       resolve(undefined)
     })
@@ -78,16 +78,16 @@ ava('verification failure: executor skipped an operation', async t => {
 
   await whenViolated
   t.is(violations.length, 1)
-  t.is(violations[0].name, 'ProcessedOutOfOrderError')
-  t.is(violations[0].data.expectedSeq as number, 1)
-  t.is(violations[0].data.executedSeq as number, 2)
+  t.is(violations[0].details.code, 'ProcessedOutOfOrderError')
+  t.is(violations[0].details.data.expectedSeq as number, 1)
+  t.is(violations[0].details.data.executedSeq as number, 2)
 
   try {
     await contract.verify()
   } catch (violation: any) {
-    t.is(violation.name, 'ProcessedOutOfOrderError')
-    t.is(violation.data.expectedSeq as number, 1)
-    t.is(violation.data.executedSeq as number, 2)
+    t.is(violation.details.code, 'ProcessedOutOfOrderError')
+    t.is(violation.details.data.expectedSeq as number, 1)
+    t.is(violation.details.data.executedSeq as number, 2)
   }
 
   await monitor.close()
@@ -101,9 +101,9 @@ ava('verification failure: executor op-changes do not match contract', async t =
   })
 
   const monitor = await contract.monitor()
-  const violations: BaseError[] = []
+  const violations: ContractFraudProof[] = []
   const whenViolated = new Promise(resolve => {
-    monitor.on('violation', (evt: BaseError) => {
+    monitor.on('violation', (evt: ContractFraudProof) => {
       violations.push(evt)
       resolve(undefined)
     })
@@ -116,14 +116,14 @@ ava('verification failure: executor op-changes do not match contract', async t =
 
   await whenViolated
   t.is(violations.length, 1)
-  t.is(violations[0].name, 'ChangeMismatchError')
-  t.deepEqual(violations[0].data.expectedChange as any, { path: '/foo', type: 'put', value: 'hello world' })
+  t.is(violations[0].details.code, 'ChangeMismatchError')
+  t.deepEqual(violations[0].details.data.expectedChange as any, { path: '/foo', type: 'put', value: 'hello world' })
 
   try {
     await contract.verify()
   } catch (violation: any) {
-    t.is(violation.name, 'ChangeMismatchError')
-    t.deepEqual(violation.data.expectedChange as any, { path: '/foo', type: 'put', value: 'hello world' })
+    t.is(violation.details.code, 'ChangeMismatchError')
+    t.deepEqual(violation.details.data.expectedChange as any, { path: '/foo', type: 'put', value: 'hello world' })
   }
 
   await monitor.close()
@@ -141,9 +141,9 @@ ava('verification failure: executor processed an op from a non-participant', asy
   contract.setMyOplog(evilOplog)
 
   const monitor = await contract.monitor()
-  const violations: BaseError[] = []
+  const violations: ContractFraudProof[] = []
   const whenViolated = new Promise(resolve => {
-    monitor.on('violation', (evt: BaseError) => {
+    monitor.on('violation', (evt: ContractFraudProof) => {
       violations.push(evt)
       resolve(undefined)
     })
@@ -154,12 +154,12 @@ ava('verification failure: executor processed an op from a non-participant', asy
 
   await whenViolated
   t.is(violations.length, 1)
-  t.is(violations[0].name, 'NonParticipantError')
+  t.is(violations[0].details.code, 'NonParticipantError')
 
   try {
     await contract.verify()
   } catch (violation: any) {
-    t.is(violation.name, 'NonParticipantError')
+    t.is(violation.details.code, 'NonParticipantError')
   }
 
   await monitor.close()

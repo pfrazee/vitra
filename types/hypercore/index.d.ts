@@ -53,6 +53,8 @@ declare module 'hypercore' {
     // this is a partial declaration of the interface
     crypto: HypercoreCrypto
     fork: number
+    signature: Buffer
+    roots: MerkleTreeNode[]
     hash (): Buffer
     signedBy (key: Buffer): boolean
     get (seq: number, error = true): Promise<MerkleTreeNode>

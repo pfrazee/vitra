@@ -1,4 +1,5 @@
 import assert from 'assert'
+import util from 'util'
 import { Contract } from './contract.js'
 import { OpLog } from './log.js'
 
@@ -22,6 +23,19 @@ export async function verifyInclusionProof (proof: object|BlockInclusionProof, o
 
 export class BlockInclusionProof {
   constructor (public logPubkey: Buffer, public blockSeq: number, public rootHashAtBlock: Buffer, public rootHashSignature: Buffer) {
+  }
+
+  [util.inspect.custom] (depth: number, opts: {indentationLvl: number, stylize: Function}) {
+    let indent = ''
+    if (opts.indentationLvl) {
+      while (indent.length < opts.indentationLvl) indent += ' '
+    }
+    return this.constructor.name + '(\n' +
+      indent + '  logPubkey: ' + opts.stylize(this.logPubkey.toString('hex'), 'string') + '\n' +
+      indent + '  blockSeq: ' + opts.stylize(this.blockSeq, 'number') + '\n' +
+      indent + '  rootHashAtBlock: ' + opts.stylize(this.rootHashAtBlock.toString('hex'), 'string') + '\n' +
+      indent + '  rootHashSignature: ' + opts.stylize(this.rootHashSignature.toString('hex'), 'string') + '\n' +
+      indent + ')'
   }
 
   toJSON () {
