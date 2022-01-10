@@ -16,43 +16,6 @@ Vitra's goal is to enable multiple orgs to share ownership and operation of a da
 
 Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement its verifiable logs.
 
-## TODO
-
-- [ ] API details & various tasks
-  - [ ] Flows for creating oplogs
-  - [ ] Networking
-- [ ] Implement developer APIs
-  - [ ] Debugging information for contract-definition issues
-  - [ ] Testing sandbox for debugging changes to an active 
-- [ ] Edge-case protocols
-  - [ ] Source-code rollback protocol for handling bad deployments
-- [ ] Documentation
-  - [ ] Overview
-  - [ ] Basic usage
-  - [ ] Examples
-  - [ ] Technical description
-  - [ ] Complete the white paper
-- [ ] Create CLI
-
-## DONE
-
-- [x] Implement initialization
-- [x] Implement transactions
-  - [x] API calls
-  - [x] Op execution
-- [x] Implement verification
-  - [x] Append-only constraint violation detection
-  - [x] Log replay
-- [x] Implement compact (shareable) proof generation
-  - [x] Operation inclusion proofs
-  - [x] Fraud proofs
-    - [x] Append-only violations
-    - [x] Contract violations
-- [x] Implement monitoring
-- [x] Additional tests
-  - [x] Participant changes
-  - [x] Contract changes
-
 ## Example usage
 
 The following contract creates a shared key/value database. Multiple orgs may participate in operating the database, but one participant is designated the "admin" and given control over the other participants.
@@ -198,6 +161,12 @@ Violations to the append-only constraint are currently detected when verifying a
 ### Native-code contract runtime
 
 Currenly Vitra is using [https://github.com/laverdet/isolated-vm] to execute contracts (via the [Confine Sandbox](https://github.com/confine-sandbox) framework). This could be optimized by replacing the Confine guest process with a C++ program that embeds V8, which would reduce the amount of marshalling between V8 contexts.
+
+### Edge-case protocols
+
+Vitra is currently designed to follow the contract with no external mutations allowed. This means that operator error could leave a Vitra in an unrecoverable state. We could solve this kind of problem with "edge-case protocols." Some edge-case protocols to consider:
+
+- **Contract rollback**. A broken contract could leave the database in an inoperable state (e.g. a runtime error stops execution). An edge-case protocol for rolling back to a previous version could help solve this.
 
 ### ZK-SNARKs
 
