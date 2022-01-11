@@ -3,7 +3,7 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import { Sandbox as ConfineSandbox } from 'confine-sandbox'
 import { Database } from './database.js'
-import { keyToStr } from '../types.js'
+import { keyToStr, keyToBuf } from '../types.js'
 import { Resource } from './util/resource.js'
 import { ContractParseError, ContractRuntimeError } from './errors.js'
 
@@ -133,12 +133,16 @@ export class VM extends Resource {
             return await this.db.index.get(key)
           },
           oplogGetLength: (pubkey: string) => {
-            // TODO
-            return this.db.localOplog?.core.length
+            const pubkeyBuf = keyToBuf(pubkey)
+            const oplog = this.db.oplogs.find(item => item.pubkey.equals(pubkeyBuf))
+            if (oplog) return oplog.length
+            throw new Error(`OpLog is not a participant (key=${pubkey})`)
           },
           oplogGet: async (pubkey: string, seq: number) => {
-            // TODO
-            return await this.db.localOplog?.get(seq)
+            const pubkeyBuf = keyToBuf(pubkey)
+            const oplog = this.db.oplogs.find(item => item.pubkey.equals(pubkeyBuf))
+            if (oplog) return await oplog.get(seq)
+            throw new Error(`OpLog is not a participant (key=${pubkey})`)
           }
         }
       }
