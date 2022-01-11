@@ -16,6 +16,11 @@ Vitra's goal is to enable multiple orgs to share ownership and operation of a da
 
 Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement its verifiable logs.
 
+## Docs
+
+- [White paper](./docs/whitepaper.md)
+- [API Reference](https://pfrazee.github.io/vitra/)
+
 ## Example usage
 
 The following contract creates a shared key/value database. Multiple orgs may participate in operating the database, but one participant is designated the "admin" and given control over the other participants.
