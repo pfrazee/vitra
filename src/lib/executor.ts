@@ -45,7 +45,7 @@ export class ContractExecutor extends Resource {
     if (!this.db.isExecutor) {
       throw new Error('Not the executor')
     }
-    await this.db._createVMIfNeeded()
+    await this.db._startVM()
     for (const log of this.db.oplogs) {
       this.watchOpLog(log)
     }

@@ -132,7 +132,7 @@ db.swarm() // share on the hypercore network
 console.log('New database created, public key:', db.pubkey.toString('hex'))
 
 // set myself as the admin
-await db.call('setAdmin', {pubkey: db.myOplog.pubkey.toString('hex')})
+await db.call('setAdmin', {pubkey: db.localOplog.pubkey.toString('hex')})
 
 // set a value
 const tx = await db.call('put', {key: 'hello', value: 'world'})

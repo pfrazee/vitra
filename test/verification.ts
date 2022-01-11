@@ -133,12 +133,12 @@ ava('verification failure: executor op-changes do not match contract', async t =
 ava('verification failure: executor processed an op from a non-participant', async t => {
   const db = await Database.create(new StorageInMemory(), {
     contract: {source: SIMPLE_CONTRACT},
-    executorTestingBehavior: TestContractExecutorBehavior.WRONG_OP_MUTATIONS
+    executorBehavior: ExecutorBehavior.TEST_WRONG_OP_MUTATIONS
   })
 
   const evilOplog = await OpLog.create(db.storage, false)
   db.oplogs.add(evilOplog)
-  db.setMyOplog(evilOplog)
+  await db.setLocalOplog(evilOplog)
 
   const monitor = await db.monitor()
   const violations: ContractFraudProof[] = []

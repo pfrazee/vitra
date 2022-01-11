@@ -35,7 +35,7 @@ ava('simple full db run', async t => {
   t.truthy(db.pubkey)
   t.truthy(db.isExecutor)
   t.truthy(db.isParticipant)
-  t.truthy(db.myOplog)
+  t.truthy(db.localOplog)
 
   const res1 = await db.call('get', {path: '/foo'})
   const res2 = await db.call('put', {path: '/foo', value: 'hello world'})

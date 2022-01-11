@@ -41,7 +41,7 @@ export class Database extends Resource {
   executor: ContractExecutor|undefined
 
   private _lockPrefix = ''
-  private _myOplog: OpLog|undefined
+  private _localOplogOverride: OpLog|undefined
 
   constructor (storage: Storage, index: IndexLog) {
     super()
@@ -62,17 +62,18 @@ export class Database extends Resource {
     return this.oplogs.find(oplog => oplog.isExecutor)
   }
 
-  get myOplog (): OpLog|undefined {
-    return this._myOplog || this.oplogs.find(oplog => oplog.writable)
+  get localOplog (): OpLog|undefined {
+    return this._localOplogOverride || this.oplogs.find(oplog => oplog.writable)
   }
 
-  setMyOplog (log: OpLog|undefined) {
+  async setLocalOplog (log: OpLog|undefined) {
     if (log) assert.ok(log.writable, 'Oplog must be writable')
-    this._myOplog = log
+    this._localOplogOverride = log
+    await this._restartVM()
   }
 
   get isParticipant (): boolean {
-    return !!this.myOplog
+    return !!this.localOplog
   }
 
   isOplogParticipant (oplog: OpLog|Buffer): boolean {
@@ -172,16 +173,16 @@ export class Database extends Resource {
     if (methodName === 'process' || methodName === 'apply') {
       throw new Error(`Cannot call "${methodName}" directly`)
     }
-    await this._createVMIfNeeded()
+    await this._startVM()
     return await this.vmManager.use<Transaction>(async () => {
       if (this.vm) {
         const res = await this.vm.contractCall(methodName, params)
         let ops: Operation[] = []
         if (res.ops?.length) {
-          if (!this.myOplog) {
+          if (!this.localOplog) {
             throw new Error('Unable to execute transaction: not a writer')
           }
-          ops = await this.myOplog.dangerousAppend(res.ops)
+          ops = await this.localOplog.dangerousAppend(res.ops)
         }
         return new Transaction(this, res.result, ops)  
       } else {
@@ -219,7 +220,7 @@ export class Database extends Resource {
     throw new Error(`Invalid contract sourcecode entry; must be a string or a buffer containing utf-8.`)
   }
 
-  async _createVMIfNeeded () {
+  async _startVM () {
     if (this.vm) return
     await this.vmManager.pause()
     const source = await this._readContractCode()
@@ -230,6 +231,15 @@ export class Database extends Resource {
     })
     await this.vm.open()
     this.vmManager.unpause()
+  }
+
+  private async _restartVM () {
+    if (!this.vm) return
+    await this.vmManager.pause()
+    await this.vm.close()
+    this.vm = undefined
+    this.vmManager.unpause()
+    await this._startVM()
   }
 
   async _onContractCodeChange (source: string) {

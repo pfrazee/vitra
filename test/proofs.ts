@@ -80,7 +80,7 @@ ava('fraud proof: oplog forked away an operation after publishing', async t => {
   await tx.whenProcessed()
   
   // use truncate() to remove the operation
-  await db.myOplog?.core.truncate(0)
+  await db.localOplog?.core.truncate(0)
 
   try {
     await tx.ops[0].verifyInclusion()
@@ -88,7 +88,7 @@ ava('fraud proof: oplog forked away an operation after publishing', async t => {
   } catch (e: any) {
     t.is(e.name, 'LogForkFraudProof')
     const obj: any = e.toJSON()
-    t.is(obj.logPubkey, db.myOplog?.pubkey.toString('hex'))
+    t.is(obj.logPubkey, db.localOplog?.pubkey.toString('hex'))
     t.is(obj.forkNumber, 1)
     t.is(obj.blockSeq, 0)
     t.truthy(typeof obj.rootHashAtBlock, 'string')
@@ -115,7 +115,7 @@ ava('failed validation: oplog removed operation and cannot verify', async t => {
   const storage2 = new StorageInMemory()
   // @ts-ignore keyPairs will exist on contract.storage
   storage2.keyPairs = db.storage.keyPairs
-  const newCore = await storage2.getHypercore(db.myOplog?.pubkey as Buffer)
+  const newCore = await storage2.getHypercore(db.localOplog?.pubkey as Buffer)
   // @ts-ignore at(0) will exist
   db.oplogs.at(0).core = newCore
 
@@ -146,7 +146,7 @@ ava('fraud proof: oplog removed operation after publishing without forking', asy
   const storage2 = new StorageInMemory()
   // @ts-ignore keyPairs will exist on contract.storage
   storage2.keyPairs = db.storage.keyPairs
-  const newCore = await storage2.getHypercore(db.myOplog?.pubkey as Buffer)
+  const newCore = await storage2.getHypercore(db.localOplog?.pubkey as Buffer)
   // @ts-ignore at(0) will exist
   db.oplogs.at(0).core = newCore
   await db.call('put', {path: '/foo', value: 'hello world!'})

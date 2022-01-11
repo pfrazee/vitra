@@ -32,7 +32,7 @@ export class VM extends Resource {
       source: this.source,
       env: {
         indexPubkey: keyToStr(this.db.pubkey),
-        oplogPubkey: this.db.myOplog ? keyToStr(this.db.myOplog.pubkey) : undefined
+        oplogPubkey: this.db.localOplog ? keyToStr(this.db.localOplog.pubkey) : undefined
       }
     })
     this.cid = cid
@@ -99,11 +99,11 @@ export class VM extends Resource {
           },
           oplogGetLength: (pubkey: string) => {
             // TODO
-            return this.db.myOplog?.core.length
+            return this.db.localOplog?.core.length
           },
           oplogGet: async (pubkey: string, seq: number) => {
             // TODO
-            return await this.db.myOplog?.get(seq)
+            return await this.db.localOplog?.get(seq)
           }
         }
       }

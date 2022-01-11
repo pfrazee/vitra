@@ -108,7 +108,6 @@ ava('remove oplogs', async t => {
     contract: {source: CONTRACT}
   })
   const dbPubkey = db.pubkey
-  db.setMyOplog(db.executorOplog)
 
   const oplogCores: any[] = []
   for (let i = 0; i < 10; i++) {
