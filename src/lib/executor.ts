@@ -1,3 +1,4 @@
+import { EventIterator } from 'event-iterator'
 import { Resource } from './util/resource.js'
 // @ts-ignore no types available -prf
 import assert from 'assert'
@@ -11,7 +12,8 @@ import { OpLog, ReadStream } from './log.js'
 
 const OPLOG_WATCH_RETRY_TIMEOUT = 5e3
 
-interface WatchEvtDetails {
+interface WatchEvent {
+  event: 'added'|'removed'|'op-executed'
   oplog: OpLog
   seq?: number
   op?: any
@@ -63,33 +65,29 @@ export class ContractExecutor extends Resource {
     }
   }
 
-  async* watch (): AsyncGenerator<[string, WatchEvtDetails]> {
-    // TODO need a more reliable impl, emit can sometimes be an old resolve()
-    let emit: Function|undefined
-    const onAdd = (oplog: OpLog) => emit?.(['added', {oplog}])
-    const onRemove = (oplog: OpLog) => emit?.(['removed', {oplog}])
-    const onOpExecuted = (oplog: OpLog, seq: number, op: any) => emit?.(['op-executed', {oplog, seq, op}])
-    this.db.oplogs.on('added', onAdd)
-    this.db.oplogs.on('removed', onRemove)
-    this.on('op-executed', onOpExecuted)
-    try {
-      while (true) {
-        yield await new Promise(resolve => { emit = resolve })
+  watch (): AsyncIterable<WatchEvent> {
+    return new EventIterator<WatchEvent>(({push}) => {
+      const onAdd = (oplog: OpLog) => push({event: 'added', oplog})
+      const onRemove = (oplog: OpLog) => push({event: 'removed', oplog})
+      const onOpExecuted = (oplog: OpLog, seq: number, op: any) => push({event: 'op-executed', oplog, seq, op})
+      this.db.oplogs.on('added', onAdd)
+      this.db.oplogs.on('removed', onRemove)
+      this.on('op-executed', onOpExecuted)
+      return () => {
+        this.db.oplogs.removeListener('added', onAdd)
+        this.db.oplogs.removeListener('removed', onRemove)
+        this.removeListener('op-executed', onOpExecuted)
       }
-    } finally {
-      this.db.oplogs.removeListener('added', onAdd)
-      this.db.oplogs.removeListener('removed', onRemove)
-      this.removeListener('op-executed', onOpExecuted)
-    }
+    })
   }
 
   async sync () {
     await Promise.all(this.db.oplogs.map(oplog => oplog.core.update()))
     const state = this._captureLogSeqs()
     if (this._hasExecutedAllSeqs(state)) return
-    for await (const [evt, info] of this.watch()) {
-      const keystr = keyToStr(info.oplog.pubkey)
-      if (evt === 'removed') {
+    for await (const evt of this.watch()) {
+      const keystr = keyToStr(evt.oplog.pubkey)
+      if (evt.event === 'removed') {
         state.delete(keystr)
       }
       if (this._hasExecutedAllSeqs(state)) return
