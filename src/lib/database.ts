@@ -5,7 +5,9 @@ import { UsageManager } from './util/usage-manager.js'
 import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as assert from 'assert'
 import {
+  DatabaseOpts,
   DatabaseCreateOpts,
+  ExecutorBehavior,
   IndexBatchEntry,
   OperationResults,
   ApplyActions,
@@ -118,7 +120,7 @@ export class Database extends Resource {
     return contract
   }
 
-  static async load (storage: Storage|string, pubkey: Key): Promise<Database> {
+  static async load (storage: Storage|string, pubkey: Key, opts?: DatabaseOpts): Promise<Database> {
     const _storage: Storage = (typeof storage === 'string') ? new Storage(storage) : storage
     assert.ok(_storage instanceof Storage, '_storage is required')
     pubkey = keyToBuf(pubkey) // keyToBuf() will validate the key
@@ -135,14 +137,19 @@ export class Database extends Resource {
     return contract
   }
 
-  async _open (opts?: DatabaseCreateOpts) {
+  async _open (opts?: DatabaseOpts|DatabaseCreateOpts) {
     if (this.isExecutor) {
-      if (typeof opts?.executorTestingBehavior === 'number') {
-        this.executor = new TestContractExecutor(this, opts.executorTestingBehavior)
+      if (typeof opts?.executorBehavior === 'number') {
+        if (opts.executorBehavior === ExecutorBehavior.DISABLED) {
+          // don't instantiate
+        } else {
+          this.executor = new TestContractExecutor(this, opts.executorBehavior)
+          await this.executor.open()
+        }
       } else {
         this.executor = new ContractExecutor(this)
+        await this.executor.open()
       }
-      await this.executor.open()
     }
   }
 

@@ -1,5 +1,5 @@
 import ava from 'ava'
-import { StorageInMemory, Database, OpLog, ContractFraudProof, TestContractExecutorBehavior } from '../src/index.js'
+import { StorageInMemory, Database, OpLog, ContractFraudProof, ExecutorBehavior } from '../src/index.js'
 
 const SIMPLE_CONTRACT = `
 import assert from 'assert'
@@ -23,7 +23,7 @@ export const apply = {
 ava('verification failure: executor processed an op multiple times', async t => {
   const db = await Database.create(new StorageInMemory(), {
     contract: {source: SIMPLE_CONTRACT},
-    executorTestingBehavior: TestContractExecutorBehavior.PROCESS_OP_MULTIPLE_TIMES
+    executorBehavior: ExecutorBehavior.TEST_PROCESS_OP_MULTIPLE_TIMES
   })
 
   const monitor = await db.monitor()
@@ -59,7 +59,7 @@ ava('verification failure: executor processed an op multiple times', async t => 
 ava('verification failure: executor skipped an operation', async t => {
   const db = await Database.create(new StorageInMemory(), {
     contract: {source: SIMPLE_CONTRACT},
-    executorTestingBehavior: TestContractExecutorBehavior.SKIP_OPS
+    executorBehavior: ExecutorBehavior.TEST_SKIP_OPS
   })
 
   const monitor = await db.monitor()
@@ -97,7 +97,7 @@ ava('verification failure: executor skipped an operation', async t => {
 ava('verification failure: executor op-changes do not match contract', async t => {
   const db = await Database.create(new StorageInMemory(), {
     contract: {source: SIMPLE_CONTRACT},
-    executorTestingBehavior: TestContractExecutorBehavior.WRONG_OP_MUTATIONS
+    executorBehavior: ExecutorBehavior.TEST_WRONG_OP_MUTATIONS
   })
 
   const monitor = await db.monitor()

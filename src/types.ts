@@ -1,6 +1,4 @@
 import { AckSchema } from './schemas.js'
-import { TestContractExecutorBehavior } from './lib/testing/executor.js'
-export { TestContractExecutorBehavior } from './lib/testing/executor.js'
 
 export type Key = string|Buffer
 
@@ -8,9 +6,19 @@ export interface ContractCode {
   source: string
 }
 
-export interface DatabaseCreateOpts {
-  contract: ContractCode,
-  executorTestingBehavior?: TestContractExecutorBehavior
+export enum ExecutorBehavior {
+  DISABLED,
+  TEST_PROCESS_OP_MULTIPLE_TIMES,
+  TEST_SKIP_OPS,
+  TEST_WRONG_OP_MUTATIONS
+}
+
+export interface DatabaseOpts {
+  executorBehavior?: ExecutorBehavior
+}
+
+export interface DatabaseCreateOpts extends DatabaseOpts {
+  contract: ContractCode
 }
 
 export interface IndexChange {
