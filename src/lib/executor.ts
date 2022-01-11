@@ -95,10 +95,12 @@ export class ContractExecutor extends Resource {
   }
 
   async watchOpLog (log: OpLog) {
+    if (this.closing || this.closed) return
     const keystr = keyToStr(log.pubkey)
     const release = await this.db.lock(`watchOpLog:${keystr}`)
     try {
       if (this._oplogReadStreams.has(keystr)) return
+      if (!this.db.isOplogParticipant(log)) return
 
       await this._readLastExecutedSeq(log)
       const start = this._getLastExecutedSeq(log)
@@ -118,6 +120,9 @@ export class ContractExecutor extends Resource {
           }, OPLOG_WATCH_RETRY_TIMEOUT).unref()
         }
       })
+    } catch (e) {
+      if (this.closing || this.closed) return // ignore
+      throw e
     } finally {
       release()
     }

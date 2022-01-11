@@ -65,8 +65,7 @@ export class Log extends EventEmitter {
   }
 
   async close () {
-    // TODO
-    // return this.core.close()
+    return this.core.close()
   }
 
   equals (log: Log) {

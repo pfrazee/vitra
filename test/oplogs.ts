@@ -1,9 +1,14 @@
 import ava from 'ava'
-import { StorageInMemory, Database, OpLog } from '../src/index.js'
+import { StorageInMemory, Database, ExecutorBehavior, OpLog } from '../src/index.js'
 
 const CONTRACT = `
 import assert from 'assert'
 import { index } from 'contract'
+
+export function get ({key}, emit) {
+  assert(typeof key === 'string' && key.length > 0)
+  return index.get(key)
+}
 
 export function put ({key, value}, emit) {
   assert(typeof key === 'string' && key.length > 0)
@@ -91,12 +96,12 @@ ava('add oplogs', async t => {
     t.truthy(!!db.oplogs.find(o => o.pubkey.equals(oplogCores[i].key)))
   }
   
-  // TODO check read from fresh
-  // const contract2 = await Contract.load(storage1, contractPubkey)
-  // t.is(contract2.oplogs.length, 11)
-  // for (let i = 0; i < 10; i++) {
-  //   t.truthy(!!contract2.oplogs.find(o => o.pubkey.equals(oplogCores[i].key)))
-  // }
+  // check read from fresh
+  const db2 = await Database.load(storage1, dbPubkey, {executorBehavior: ExecutorBehavior.DISABLED})
+  t.is(db2.oplogs.length, 11)
+  for (let i = 0; i < 10; i++) {
+    t.truthy(!!db2.oplogs.find(o => o.pubkey.equals(oplogCores[i].key)))
+  }
 
   await db.close()
 })
@@ -148,18 +153,88 @@ ava('remove oplogs', async t => {
   }
   t.truthy(!!db.oplogs.find(o => o.pubkey.equals(oplogCores[9].key)))
   
-  // TODO check read from fresh
-  // const contract2 = await Contract.load(storage1, contractPubkey)
-  // t.is(contract2.oplogs.length, 2)
-  // t.truthy(!!contract2.oplogs.find(o => o.pubkey.equals(oplogCores[9].key)))
+  // check read from fresh
+  const db2 = await Database.load(storage1, dbPubkey, {executorBehavior: ExecutorBehavior.DISABLED})
+  t.is(db2.oplogs.length, 2)
+  t.truthy(!!db2.oplogs.find(o => o.pubkey.equals(oplogCores[9].key)))
 
   await db.close()
 })
 
-ava.skip('execute ops on added oplogs', async t => {
-  // TODO
+ava('execute ops on added oplogs', async t => {
+  const storage = new StorageInMemory()
+  const db = await Database.create(storage, {
+    contract: {source: CONTRACT}
+  })
+
+  const secondOplogCore = await storage.createHypercore()
+  await db.call('addOplog', {pubkey: secondOplogCore.key.toString('hex')})
+  await db.executor?.sync()
+  t.is(db.oplogs.length, 2)
+  t.is(db.oplogs.at(1)?.pubkey.toString('hex'), secondOplogCore.key.toString('hex'))
+
+  // execute transactions on the second oplog
+
+  await db.setLocalOplog(db.oplogs.at(1))
+  
+  const tx = await db.call('put', {key: 'foo', value: 'bar'})
+  await tx.whenProcessed()
+  const tx2 = await db.call('get', {key: 'foo'})
+  t.is(tx2.response.value, 'bar')
+
+  const tx3 = await db.call('put', {key: 'foo', value: 'baz'})
+  await tx3.whenProcessed()
+  const tx4 = await db.call('get', {key: 'foo'})
+  t.is(tx4.response.value, 'baz')
+
+  t.is(db.oplogs.at(0)?.length, 1)
+  t.is(db.oplogs.at(1)?.length, 2)
+
+  await db.close()
 })
 
-ava.skip('dont execute ops on removed oplogs', async t => {
-  // TODO
+ava('dont execute ops on removed oplogs', async t => {
+  const storage = new StorageInMemory()
+  const db = await Database.create(storage, {
+    contract: {source: CONTRACT}
+  })
+
+  const secondOplogCore = await storage.createHypercore()
+  await db.call('addOplog', {pubkey: secondOplogCore.key.toString('hex')})
+  await db.executor?.sync()
+  t.is(db.oplogs.length, 2)
+  t.is(db.oplogs.at(1)?.pubkey.toString('hex'), secondOplogCore.key.toString('hex'))
+  const secondOplogPubkey = db.oplogs.at(1)?.pubkey
+
+  // execute transactions on the second oplog
+
+  await db.setLocalOplog(db.oplogs.at(1))
+  
+  const tx = await db.call('put', {key: 'foo', value: 'bar'})
+  await tx.whenProcessed()
+  const tx2 = await db.call('get', {key: 'foo'})
+  t.is(tx2.response.value, 'bar')
+
+  // remove the second oplog
+
+  await db.setLocalOplog(db.oplogs.at(0))
+
+  const tx3 = await db.call('removeOplog', {pubkey: db.oplogs.at(1)?.pubkey.toString('hex')})
+  await tx3.whenProcessed()
+
+  // try to execute another transaction (and fail)
+
+  const secondOplog = new OpLog(await storage.getHypercore(secondOplogPubkey as Buffer), false)
+  await db.setLocalOplog(secondOplog)
+
+  await db.call('put', {key: 'foo', value: 'baz'})
+  await db.executor?.sync()
+  const tx4 = await db.call('get', {key: 'foo'})
+
+  // not mutated...
+  t.is(tx4.response.value, 'bar')
+  // ...despite existence of second op
+  t.is(secondOplog.length, 2)
+
+  await db.close()
 })
