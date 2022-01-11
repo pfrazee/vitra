@@ -20,7 +20,7 @@ export class VM extends Resource {
 
   async _open () {
     this.sandbox = new ConfineSandbox({
-      runtime: 'ito-confine-runtime',
+      runtime: 'vitra-confine-runtime',
       globals: this._createVMGlobals(),
       nodeModulesPath: NODE_MODULES_PATH,
       pipeStdout: true,
