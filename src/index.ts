@@ -1,4 +1,5 @@
 export * from './types.js'
+export * from './lib/errors.js'
 export * from './lib/transactions.js'
 export * from './lib/log.js'
 export * from './lib/storage.js'

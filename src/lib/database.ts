@@ -151,6 +151,17 @@ export class Database extends Resource {
         await this.executor.open()
       }
     }
+    if (this.executor) {
+      // start the VM next tick so that error handlers can be registered
+      process.nextTick(async () => {
+        if (this.closing || this.closed) return
+        try {
+          await this._startVM()
+        } catch (e) {
+          this.emit('error', e)
+        }
+      })
+    }
   }
 
   async _close () {
@@ -228,16 +239,18 @@ export class Database extends Resource {
   }
 
   async _startVM () {
-    if (this.vm) return
-    await this.vmManager.pause()
-    const source = await this._readContractCode()
-    this.vm = new VM(this, source)
-    this.vm.on('error', (evt: {error: string}) => {
-      this.emit('error', new AggregateError([new Error(evt.error)], 'The contract experienced a runtime error'))
-      this.close()
-    })
-    await this.vm.open()
-    this.vmManager.unpause()
+    const release = await this.lock('_startVM')
+    try {
+      if (this.vm) return
+      await this.vmManager.pause()
+      const source = await this._readContractCode()
+      this.vm = new VM(this, source)
+      this.vm.on('error', (error: any) => this.emit('error', error))
+      await this.vm.open()
+      this.vmManager.unpause()
+    } finally {
+      release()
+    }
   }
 
   private async _restartVM () {
@@ -253,10 +266,7 @@ export class Database extends Resource {
     await this.vmManager.pause()
     if (this.vm) await this.vm.close()
     this.vm = new VM(this, source)
-    this.vm.on('error', (evt: {error: string}) => {
-      this.emit('error', new AggregateError([new Error(evt.error)], 'The contract experienced a runtime error'))
-      this.close()
-    })
+    this.vm.on('error', (error: any) => this.emit('error', error))
     await this.vm.open()
     this.vmManager.unpause()
   }

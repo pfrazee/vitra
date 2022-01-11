@@ -9,6 +9,7 @@ import { IndexBatchEntry, keyToStr } from '../types.js'
 import { AckSchema, ACK_PATH_PREFIX, genAckPath } from '../schemas.js'
 import { Database } from './database.js'
 import { OpLog, ReadStream } from './log.js'
+import { ContractRuntimeError } from './errors.js'
 
 const OPLOG_WATCH_RETRY_TIMEOUT = 5e3
 
@@ -45,7 +46,6 @@ export class ContractExecutor extends Resource {
     if (!this.db.isExecutor) {
       throw new Error('Not the executor')
     }
-    await this.db._startVM()
     for (const log of this.db.oplogs) {
       this.watchOpLog(log)
     }
@@ -202,6 +202,7 @@ export class ContractExecutor extends Resource {
       let batch: IndexBatchEntry[] = []
       let applyError: any
 
+      await this.db._startVM()
       await this.db.vmManager.use<void>(async () => {
         assert(!!this.db.vm, 'Contract VM not initialized')
 
@@ -215,8 +216,8 @@ export class ContractExecutor extends Resource {
           const processRes = await this.db.vm.contractProcess(opValue)
           metadata = processRes.result
         } catch (e: any) {
-          if (!e.toString().includes('Method not found: process')) {
-            console.debug('Failed to call process()', e)
+          if (!e.toString().includes('Method not found: process') && e instanceof ContractRuntimeError) {
+            this.db.emit('error', e)
           }
         }
         ack.metadata = metadata
@@ -228,6 +229,9 @@ export class ContractExecutor extends Resource {
           batch = this.db._mapApplyActionsToBatch(applyRes.actions)
           applySuccess = true
         } catch (e: any) {
+          if (e instanceof ContractRuntimeError) {
+            this.db.emit('error', e)
+          }
           applyError = e
           applySuccess = false
         }
