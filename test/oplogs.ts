@@ -224,7 +224,7 @@ ava('dont execute ops on removed oplogs', async t => {
 
   // try to execute another transaction (and fail)
 
-  const secondOplog = new OpLog(await storage.getHypercore(secondOplogPubkey as Buffer), false)
+  const secondOplog = new OpLog(await storage.getHypercore(secondOplogPubkey as Buffer))
   await db.setLocalOplog(secondOplog)
 
   await db.call('put', {key: 'foo', value: 'baz'})

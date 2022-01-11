@@ -9,7 +9,6 @@ export const genAckPath = (pubkey: Key, seq: number) => `${ACK_PATH_PREFIX}${key
 
 export interface InputSchema {
   pubkey: Buffer
-  executor: boolean
   active: boolean
 }
 

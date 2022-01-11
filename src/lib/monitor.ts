@@ -199,7 +199,6 @@ export class ContractMonitor extends Resource {
     const inputValue = entry.value as InputSchema
     this.assert(Buffer.isBuffer(inputValue.pubkey), new InvalidSchemaError({entry, description: '.pubkey to be a buffer'}))
     this.assert(inputValue.pubkey?.byteLength === 32, new InvalidSchemaError({entry, description: '.pubkey to be a buffer of 32 bytes'}))
-    this.assert(typeof inputValue.executor === 'boolean', new InvalidSchemaError({entry, description: '.executor to be a boolean'}))
     this.assert(typeof inputValue.active === 'boolean', new InvalidSchemaError({entry, description: '.active to be a boolean'}))
     if (inputValue.active) {
       this._queuedEffects.push({effect: 'add-input', value: keyToStr(inputValue.pubkey)})
@@ -266,7 +265,7 @@ export class ContractMonitor extends Resource {
       log = this._oplogs.get(pubkeyStr)
       if (log) return log
       
-      log = new OpLog(await this.db.storage.getHypercore(pubkeyBuf), false)
+      log = new OpLog(await this.db.storage.getHypercore(pubkeyBuf))
       this._oplogs.set(pubkeyStr, log)
       return log
     } finally {

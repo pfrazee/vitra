@@ -136,7 +136,7 @@ ava('verification failure: executor processed an op from a non-participant', asy
     executorBehavior: ExecutorBehavior.TEST_WRONG_OP_MUTATIONS
   })
 
-  const evilOplog = await OpLog.create(db.storage, false)
+  const evilOplog = await OpLog.create(db.storage)
   db.oplogs.add(evilOplog)
   await db.setLocalOplog(evilOplog)
 

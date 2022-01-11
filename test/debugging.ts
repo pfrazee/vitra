@@ -1,8 +1,78 @@
 import ava from 'ava'
 import { StorageInMemory, Database, ContractParseError, ContractRuntimeError } from '../src/index.js'
 
-ava.skip('can create test sandboxes of active contracts without affecting the active deployment', async t => {
-  // TODO
+const SIMPLE_CONTRACT = `
+import assert from 'assert'
+import { index } from 'contract'
+
+export async function get ({path}) {
+  assert(typeof path === 'string' && path.length > 0)
+  return await index.get(path)
+}
+
+export function put ({path, value}, emit) {
+  assert(typeof path === 'string' && path.length > 0)
+  emit({op: 'PUT', path, value})
+}
+
+export const apply = {
+  PUT (tx, op, ack) {
+    assert(typeof op.path === 'string' && op.path.length > 0)
+    tx.put(op.path, op.value)
+  }
+}
+`
+
+const SIMPLE_CONTRACT_MODIFIED = `
+import assert from 'assert'
+import { index } from 'contract'
+
+export async function get ({path}) {
+  assert(typeof path === 'string' && path.length > 0)
+  return await index.get(path)
+}
+
+export function put ({path, value}, emit) {
+  assert(typeof path === 'string' && path.length > 0)
+  emit({op: 'PUT', path, value})
+}
+
+export const apply = {
+  PUT (tx, op, ack) {
+    assert(typeof op.path === 'string' && op.path.length > 0)
+    tx.put(op.path, op.value.toUpperCase())
+  }
+}
+`
+
+ava.only('can create test sandboxes of active contracts without affecting the active deployment', async t => {
+  const db = await Database.create(new StorageInMemory(), {
+    contract: {source: SIMPLE_CONTRACT}
+  })
+
+  await db.call('put', {path: '/foo', value: 'hello world'})
+  await db.executor?.sync()
+  
+  const sbxDb = await Database.createSandbox({from: db})
+
+  const res1 = await sbxDb.call('get', {path: '/foo'})
+  await sbxDb.call('put', {path: '/foo', value: 'hello sandbox'})
+  await sbxDb.executor?.sync()
+
+  const sbxDb2 = await Database.createSandbox({from: db, contract: {source: SIMPLE_CONTRACT_MODIFIED}})
+
+  await sbxDb2.call('put', {path: '/foo', value: 'hello sandbox 2'})
+  await sbxDb2.executor?.sync()
+
+  const res2 = await db.call('get', {path: '/foo'})
+  const res3 = await sbxDb.call('get', {path: '/foo'})
+  const res4 = await sbxDb2.call('get', {path: '/foo'})
+  t.is(res1.response?.value, 'hello world')
+  t.is(res2.response?.value, 'hello world')
+  t.is(res3.response?.value, 'hello sandbox')
+  t.is(res4.response?.value, 'HELLO SANDBOX 2')
+
+  await db.close()
 })
 
 ava('parsing errors in contract code', async t => {

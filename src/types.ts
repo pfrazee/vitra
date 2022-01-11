@@ -1,4 +1,5 @@
 import { AckSchema } from './schemas.js'
+import { Database } from './lib/database.js'
 
 export type Key = string|Buffer
 
@@ -19,6 +20,11 @@ export interface DatabaseOpts {
 
 export interface DatabaseCreateOpts extends DatabaseOpts {
   contract: ContractCode
+}
+
+export interface SandboxDatabaseCreateOpts {
+  from?: Database
+  contract?: ContractCode
 }
 
 export interface IndexChange {

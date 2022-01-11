@@ -1,12 +1,12 @@
 import { Resource } from './util/resource.js'
 import { ResourcesManager } from './util/resources-manager.js'
 import { UsageManager } from './util/usage-manager.js'
-// @ts-ignore no types available -prf
-import AggregateError from 'core-js-pure/actual/aggregate-error.js'
 import * as assert from 'assert'
 import {
   DatabaseOpts,
   DatabaseCreateOpts,
+  SandboxDatabaseCreateOpts,
+  ContractCode,
   ExecutorBehavior,
   IndexBatchEntry,
   OperationResults,
@@ -25,7 +25,7 @@ import {
   AckSchema
 } from '../schemas.js'
 import { beekeyToPath } from './util/hyper.js'
-import { Storage } from './storage.js'
+import { Storage, StorageInMemory } from './storage.js'
 import { Operation, Transaction } from './transactions.js'
 import { IndexLog, OpLog } from './log.js'
 import { ContractExecutor } from './executor.js'
@@ -58,10 +58,6 @@ export class Database extends Resource {
 
   get isExecutor (): boolean {
     return this.index.writable
-  }
-
-  get executorOplog (): OpLog|undefined {
-    return this.oplogs.find(oplog => oplog.isExecutor)
   }
 
   get localOplog (): OpLog|undefined {
@@ -112,12 +108,12 @@ export class Database extends Resource {
     assert.equal(typeof opts?.contract?.source, 'string', 'opts.code.source is required')
 
     const index = await IndexLog.create(storage)
-    const contract = new Database(storage, index)
-    contract.oplogs.add(await OpLog.create(storage, true)) // executor oplog
-    await contract._writeInitBlocks(opts?.contract?.source)
-    await contract.open(opts)
+    const db = new Database(storage, index)
+    db.oplogs.add(await OpLog.create(storage)) // executor oplog
+    await db._writeInitBlocks(opts?.contract?.source)
+    await db.open(opts)
 
-    return contract
+    return db
   }
 
   static async load (storage: Storage|string, pubkey: Key, opts?: DatabaseOpts): Promise<Database> {
@@ -127,14 +123,46 @@ export class Database extends Resource {
 
     const indexCore = await _storage.getHypercore(pubkey)
     const index = new IndexLog(indexCore)
-    const contract = new Database(_storage, index) 
-    const oplogs = await contract.index.listOplogs()
+    const db = new Database(_storage, index) 
+    const oplogs = await db.index.listOplogs()
     await Promise.all(oplogs.map(async (oplog) => {
-      contract.oplogs.add(new OpLog(await _storage.getHypercore(oplog.pubkey), oplog.executor))
+      db.oplogs.add(new OpLog(await _storage.getHypercore(oplog.pubkey)))
     }))
-    await contract.open()
+    await db.open(opts)
     
-    return contract
+    return db
+  }
+
+  static async createSandbox (opts: SandboxDatabaseCreateOpts): Promise<Database> {
+    assert.ok(opts.from || opts.contract?.source, 'Must specify {from} or {contract}')
+
+    const storage = new StorageInMemory()
+    
+    const index = await IndexLog.create(storage)
+    if (opts.from) {
+      await opts.from.index._dangerousCopyInto(index)
+    }
+    
+    const db = new Database(storage, index)
+    
+    if (opts.from) {
+      for (const fromOplog of opts.from.oplogs) {
+        const oplog = await OpLog.create(storage)
+        await fromOplog._dangerousCopyInto(oplog)
+        db.oplogs.add(oplog)
+      }
+    } else {
+      db.oplogs.add(await OpLog.create(storage))
+    }
+    
+    if (!opts.from) {
+      await db._writeInitBlocks(opts.contract?.source)
+    } else if (opts.contract?.source) {
+      await db._onContractCodeChange(opts.contract.source)
+    }
+
+    await db.open()
+    return db
   }
 
   async _open (opts?: DatabaseOpts|DatabaseCreateOpts) {
@@ -230,7 +258,7 @@ export class Database extends Resource {
   // vm
   // =
 
-  private async _readContractCode (): Promise<string> {
+  async _readContractCode (): Promise<string> {
     const src = await this.index.get(CONTRACT_SOURCE_PATH)
     if (!src) throw new Error('No contract sourcecode found')
     if (Buffer.isBuffer(src.value)) return src.value.toString('utf8')
@@ -286,7 +314,7 @@ export class Database extends Resource {
       batch.push({
         type: 'put',
         path: genParticipantPath(oplog.pubkey),
-        value: {pubkey, active: true, executor: oplog.isExecutor}
+        value: {pubkey, active: true}
       })
     }
     batch.push({type: 'put', path: GENESIS_ACK_PATH, value: {}})
@@ -303,10 +331,10 @@ export class Database extends Resource {
         if (path.startsWith('/.sys/')) {
           if (action.type === 'addOplog') {
             const pubkeyBuf = keyToBuf(action.value.pubkey)
-            return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: true, executor: false}}
+            return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: true}}
           } else if (action.type === 'removeOplog') {
             const pubkeyBuf = keyToBuf(action.value.pubkey)
-            return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: false, executor: false}}
+            return {type: 'put', path: genParticipantPath(action.value.pubkey), value: {pubkey: pubkeyBuf, active: false}}
           } else if (action.type === 'setContractSource') {
             return {type: 'put', path: CONTRACT_SOURCE_PATH, value: action.value.code}
           }
@@ -336,7 +364,7 @@ export class Database extends Resource {
     const pubkeyBuf = entry.pubkey
     const oplogIndex = this.oplogs.findIndex(oplog => oplog.pubkey.equals(pubkeyBuf))
     if (oplogIndex === -1 && entry.active) {
-      await this.oplogs.add(new OpLog(await this.storage.getHypercore(pubkeyBuf), false))
+      await this.oplogs.add(new OpLog(await this.storage.getHypercore(pubkeyBuf)))
     } else if (oplogIndex !== -1 && !entry.active) {
       await this.oplogs.removeAt(oplogIndex)
     }

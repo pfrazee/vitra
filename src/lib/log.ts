@@ -132,7 +132,7 @@ export class Log extends EventEmitter {
 }
 
 export class OpLog extends Log {
-  constructor (core: Hypercore, public isExecutor: boolean) {
+  constructor (core: Hypercore) {
     super(core)
   }
 
@@ -144,13 +144,12 @@ export class OpLog extends Log {
     return this.constructor.name + '(\n' +
       indent + '  key: ' + opts.stylize(keyToStr(this.pubkey), 'string') + '\n' +
       indent + '  opened: ' + opts.stylize(this.core.opened, 'boolean') + '\n' +
-      indent + '  executor: ' + opts.stylize(this.isExecutor, 'boolean') + '\n' +
       indent + ')'
   }
 
-  static async create (storage: Storage, isExecutor: boolean): Promise<OpLog> {
+  static async create (storage: Storage): Promise<OpLog> {
     const core = await storage.createHypercore()
-    return new OpLog(core, isExecutor)
+    return new OpLog(core)
   }
 
   async get (seq: number): Promise<OpLogEntry> {
@@ -171,6 +170,15 @@ export class OpLog extends Log {
       ops.push(new Operation(this, proof, value))
     }
     return ops
+  }
+
+  async _dangerousCopyInto (target: OpLog) {
+    assert(!target.length, 'Cannot copy into a log that isnt empty')
+    const blocks: Buffer[] = []
+    for (let i = 0; i < this.length; i++) {
+      blocks.push(await this.core.get(i))
+    }
+    await this.core.append(blocks)
   }
 }
 
@@ -238,15 +246,14 @@ export class IndexLog extends Log {
     await b.flush()
   }
 
-  async listOplogs (): Promise<{pubkey: Key, executor: boolean}[]> {
+  async listOplogs (): Promise<{pubkey: Key}[]> {
     const entries = await this.list(PARTICIPANT_PATH_PREFIX)
     const oplogs = []
     for (const entry of entries) {
       try {
         if (!entry.value.active) continue
         oplogs.push({
-          pubkey: entry.value.pubkey,
-          executor: entry.value.executor
+          pubkey: entry.value.pubkey
         })
       } catch (e: any) {
         this.emit('warning', new AggregateError([e], `Invalid entry under ${PARTICIPANT_PATH_PREFIX}, name=${entry.name}`))
@@ -265,6 +272,13 @@ export class IndexLog extends Log {
         name: path.split('/').filter(Boolean).pop() || '',
         value: entry.value
       }
+    }
+  }
+
+  async _dangerousCopyInto (target: IndexLog) {
+    assert(!target.length, 'Cannot copy into a log that isnt empty')
+    for await (const entry of toIterable.source(this.bee.createReadStream())) {
+      await target.bee.put(entry.key, entry.value)
     }
   }
 }
