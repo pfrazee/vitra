@@ -169,7 +169,9 @@ export class ContractExecutor extends Resource {
   }
 
   protected async _executeOp (log: OpLog, seq: number, opValue: any) {
-    const assertStillOpen = () => assert(!this.db.closing && !this.db.closed, 'Database closed')
+    const assertStillOpen = () => {
+      if (this.db.closing || this.db.closed) throw new DatabaseClosedError()
+    }
 
     const release = await this.db.lock('_executeOp')
     try {
@@ -249,8 +251,16 @@ export class ContractExecutor extends Resource {
       this._putLastExecutedSeq(log, seq)
 
       this.emit('op-executed', log, seq, opValue)
+    } catch (e: any) {
+      if (e instanceof DatabaseClosedError) {
+        // ignore, just need to abort handling
+      } else {
+        throw e
+      }
     } finally {
       release()
     }
   }
 }
+
+class DatabaseClosedError extends Error {}
