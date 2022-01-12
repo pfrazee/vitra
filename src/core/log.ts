@@ -30,6 +30,10 @@ import * as c from 'compact-encoding'
 // @ts-ignore no types available -prf
 import * as toIterable from 'stream-to-it'
 
+interface InternalIndexOpts {
+  checkout?: number|undefined
+}
+
 export class Log extends EventEmitter {
   core: Hypercore
 
@@ -202,8 +206,13 @@ export class IndexLog extends Log {
     return new IndexLog(core)
   }
 
-  async list (prefix = '/', opts?: IndexLogListOpts): Promise<IndexLogEntry[]> {
-    let arr = await beeShallowList(this.bee, prefix.split('/').filter(Boolean))
+  async list (prefix = '/', opts?: IndexLogListOpts, internalOpts?: InternalIndexOpts): Promise<IndexLogEntry[]> {
+    let bee = this.bee
+    if (typeof internalOpts?.checkout === 'number') {
+      bee = bee.checkout(internalOpts?.checkout)
+    }
+
+    let arr = await beeShallowList(bee, prefix.split('/').filter(Boolean))
     if (opts?.reverse) arr.reverse()
     if (opts?.offset && opts?.limit) {
       arr = arr.slice(opts.offset, opts.offset + opts.limit)
@@ -215,8 +224,13 @@ export class IndexLog extends Log {
     return arr
   }
 
-  async get (path: string): Promise<IndexLogEntry|undefined> {
-    const entry = await this.bee.get(pathToBeekey(path))
+  async get (path: string, internalOpts?: InternalIndexOpts): Promise<IndexLogEntry|undefined> {
+    let bee = this.bee
+    if (typeof internalOpts?.checkout === 'number') {
+      bee = bee.checkout(internalOpts?.checkout)
+    }
+
+    const entry = await bee.get(pathToBeekey(path))
     if (!entry) return undefined
     const pathSegs = entry.key.split(`\x00`).filter(Boolean)
     return {

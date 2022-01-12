@@ -104,6 +104,9 @@ export class ContractMonitor extends Resource {
 
   private async validate (entry: IndexHistoryEntry) {
     this.assert(entry.seq === this.expectedSeq, new UnexpectedSeqError({entry, expectedSeq: this.expectedSeq}))
+    if (this.vm) {
+      this.vm.checkoutIndexAt(entry.seq)
+    }
     switch (this.state) {
       case MonitorState.VALIDATING_GENESIS_SOURCE: {
         this.assert(entry.path === CONTRACT_SOURCE_PATH, new UnexpectedPathError({entry, expectedPath: CONTRACT_SOURCE_PATH}))

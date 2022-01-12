@@ -14,6 +14,7 @@ export class VM extends Resource {
   restricted = false
   private sandbox: ConfineSandbox|undefined
   private cid: number|undefined
+  private indexCheckoutSeq: number|undefined
 
   constructor (public db: Database, public source: string) {
     super()
@@ -115,6 +116,10 @@ export class VM extends Resource {
     this.restricted = false
   }
 
+  checkoutIndexAt (seq: number|undefined) {
+    this.indexCheckoutSeq = seq
+  }
+
   private _createVMGlobals (): any {
     return {
       console: {
@@ -127,10 +132,10 @@ export class VM extends Resource {
       __internal__: {
         contract: {
           indexList: async (_pubkey: string, prefix: string, opts?: any) => {
-            return await this.db.index.list(prefix, opts)
+            return await this.db.index.list(prefix, opts, {checkout: this.indexCheckoutSeq})
           },
           indexGet: async (_pubkey: string, key: string) => {
-            return await this.db.index.get(key)
+            return await this.db.index.get(key, {checkout: this.indexCheckoutSeq})
           },
           oplogGetLength: (pubkey: string) => {
             const pubkeyBuf = keyToBuf(pubkey)
