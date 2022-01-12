@@ -152,7 +152,8 @@ export class ContractExecutor extends Resource {
   }
 
   protected _getLastExecutedSeq (oplog: OpLog, fallback = 0): number {
-    return this._lastExecutedSeqs.get(keyToStr(oplog.pubkey)) || fallback
+    const seq = this._lastExecutedSeqs.get(keyToStr(oplog.pubkey))
+    return typeof seq === 'number' ? seq : fallback
   }
 
   protected _putLastExecutedSeq (oplog: OpLog, seq: number) {
@@ -177,6 +178,9 @@ export class ContractExecutor extends Resource {
     const assertStillOpen = () => {
       if (this.db.closing || this.db.closed) throw new DatabaseClosedError()
     }
+
+    const last = this._getLastExecutedSeq(log, -1)
+    if (last >= seq) return
 
     const release = await this.db.lock('_executeOp')
     try {
