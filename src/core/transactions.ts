@@ -13,7 +13,14 @@ export class Operation {
 }
 
 export class Transaction {
-  constructor (public db: Database, public response: any, public ops: Operation[]) {
+  constructor (public db: Database, public methodName: string, public params: any, public response: any, public ops: Operation[]) {
+  }
+
+  get txId () {
+    if (this.ops[0]) {
+      return `${this.methodName}:${this.ops[0].oplog.pubkey.toString('hex').slice(0, 8)}:${this.ops[0].proof.blockSeq}`
+    }
+    return ''
   }
 
   async verifyInclusion () {
@@ -58,6 +65,10 @@ export class Transaction {
       vitraTransaction: 1,
       databasePubkey: this.db.pubkey.toString('hex'),
       isProcessed,
+      call: {
+        method: this.methodName,
+        params: this.params,
+      },
       response: opts?.includeValues ? this.response : undefined,
       operations: this.ops.map((op, i) => {
         let result = undefined
@@ -86,6 +97,6 @@ export class Transaction {
       if (!oplog) throw new Error(`Database oplog not found: ${proof.logPubkey.toString('hex')}`)
       return new Operation(oplog, proof, opObj.value)
     })
-    return new Transaction(db, obj.response, ops)
+    return new Transaction(db, obj.call?.method || 'unknown', obj.call?.params || {}, obj.response, ops)
   }
 }

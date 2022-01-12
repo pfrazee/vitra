@@ -7,6 +7,9 @@
 import assert from 'assert'
 import { index, isWriter } from 'contract'
 
+// database api
+// =
+
 export function get ({key}) {
   assert(typeof key === 'string')
   if (!key.startsWith('/')) key = `/${key}`
@@ -29,7 +32,7 @@ export function put ({key, value}, emit) {
 export function del ({key}, emit) {
   assert(isWriter)
   assert(typeof key === 'string')
-  emit({op: 'DELETE', key, value})
+  emit({op: 'DEL', key, value})
 }
 
 export function getAdmin () {
@@ -43,19 +46,22 @@ export function setAdmin ({pubkey}, emit) {
   emit({op: 'SET_ADMIN', pubkey})
 }
 
-export function addMember ({pubkey}, emit) {
+export function addParticipant ({pubkey}, emit) {
   assert(isWriter)
   assert(typeof pubkey === 'string')
   assert(pubkey.length === 64)
-  emit({op: 'ADD_MEMBER', pubkey})
+  emit({op: 'ADD_PARTICIPANT', pubkey})
 }
 
-export function removeMember ({pubkey}, emit) {
+export function removeParticipant ({pubkey}, emit) {
   assert(isWriter)
   assert(typeof pubkey === 'string')
   assert(pubkey.length === 64)
-  emit({op: 'REMOVE_MEMBER', pubkey})
+  emit({op: 'REMOVE_PARTICIPANT', pubkey})
 }
+
+// transaction handler
+// =
 
 export const apply = {
   PUT (tx, op) {
@@ -65,13 +71,13 @@ export const apply = {
     tx.put(`/values${op.key}`, op.value)
   },
 
-  DELETE (tx, op) {
+  DEL (tx, op) {
     assert(typeof op.key === 'string')
     if (!op.key.startsWith('/')) op.key = `/${op.key}`
     tx.delete(`/values${op.key}`)
   },
 
-  SET_ADMIN (tx, op) {
+  async SET_ADMIN (tx, op) {
     assert(typeof op.pubkey === 'string')
     assert(op.pubkey.length === 64)
     const adminEntry = await state.get('/admin')
@@ -79,7 +85,7 @@ export const apply = {
     tx.put('/admin', {pubkey: op.pubkey})
   },
 
-  ADD_MEMBER (tx, op) {
+  async ADD_PARTICIPANT (tx, op) {
     assert(typeof op.pubkey === 'string')
     assert(op.pubkey.length === 64)
     const adminEntry = await state.get('/admin')
@@ -87,7 +93,7 @@ export const apply = {
     tx.addOplog(op.pubkey)
   },
 
-  REMOVE_MEMBER (tx, op) {
+  async REMOVE_PARTICIPANT (tx, op) {
     assert(typeof op.pubkey === 'string')
     assert(op.pubkey.length === 64)
     const adminEntry = await state.get('/admin')

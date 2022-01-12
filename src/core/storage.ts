@@ -18,7 +18,7 @@ export class Storage {
 
   async getHypercore (key: Key): Promise<Hypercore> {
     const corePath = this._getPath(key)
-    const keyPair = await this._readKeyPair(corePath)
+    const keyPair = await this._readKeyPair(corePath, key)
     const c = new Hypercore(corePath, keyPair.publicKey, {
       keyPair: keyPair.secretKey ? (keyPair as KeyPair) : undefined
     })
@@ -39,12 +39,19 @@ export class Storage {
     return path.join(this.basePath, keyToStr(key))
   }
 
-  private async _readKeyPair (corePath: string): Promise<StoredKeyPair> {
-    const str = await fsp.readFile(path.join(corePath, 'keypair.json'), 'utf8')
-    const obj = JSON.parse(str)
-    return {
-      publicKey: keyToBuf(obj.publicKey),
-      secretKey: obj.secretKey ? Buffer.from(obj.secretKey, 'hex') : undefined
+  private async _readKeyPair (corePath: string, publicKey: Key): Promise<StoredKeyPair> {
+    const str = await fsp.readFile(path.join(corePath, 'keypair.json'), 'utf8').catch(_ => undefined)
+    if (str) {
+      const obj = JSON.parse(str)
+      return {
+        publicKey: keyToBuf(obj.publicKey),
+        secretKey: obj.secretKey ? Buffer.from(obj.secretKey, 'hex') : undefined
+      }
+    } else {
+      return {
+        publicKey: keyToBuf(publicKey),
+        secretKey: undefined
+      }
     }
   }
 

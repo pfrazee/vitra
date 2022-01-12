@@ -1,6 +1,6 @@
-import { Resource } from './util/resource.js'
-import { ResourcesManager } from './util/resources-manager.js'
-import { UsageManager } from './util/usage-manager.js'
+import { Resource } from '../util/resource.js'
+import { ResourcesManager } from '../util/resources-manager.js'
+import { UsageManager } from '../util/usage-manager.js'
 import * as assert from 'assert'
 import {
   DatabaseOpts,
@@ -24,7 +24,7 @@ import {
   InputSchema,
   AckSchema
 } from '../schemas.js'
-import { beekeyToPath } from './util/hyper.js'
+import { beekeyToPath } from '../util/hyper.js'
 import { Storage, StorageInMemory } from './storage.js'
 import { Operation, Transaction } from './transactions.js'
 import { IndexLog, OpLog } from './log.js'
@@ -32,7 +32,7 @@ import { ContractExecutor } from './executor.js'
 import { TestContractExecutor } from './testing/executor.js'
 import { ContractMonitor } from './monitor.js'
 import { VM } from './vm.js'
-import lock from './util/lock.js'
+import lock from '../util/lock.js'
 
 export class Database extends Resource {
   storage: Storage
@@ -230,7 +230,7 @@ export class Database extends Resource {
           }
           ops = await this.localOplog.dangerousAppend(res.ops)
         }
-        return new Transaction(this, res.result, ops)  
+        return new Transaction(this, methodName, params, res.result, ops)  
       } else {
         throw new Error('Contract VM not instantiated')
       }

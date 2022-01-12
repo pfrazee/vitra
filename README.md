@@ -99,7 +99,7 @@ export const apply = {
     tx.delete(`/values${op.key}`)
   },
 
-  SET_ADMIN (tx, op) {
+  async SET_ADMIN (tx, op) {
     assert(typeof op.pubkey === 'string')
     assert(op.pubkey.length === 64)
     const adminEntry = await state.get('/admin')
@@ -107,7 +107,7 @@ export const apply = {
     tx.put('/admin', {pubkey: op.pubkey})
   },
 
-  ADD_PARTICIPANT (tx, op) {
+  async ADD_PARTICIPANT (tx, op) {
     assert(typeof op.pubkey === 'string')
     assert(op.pubkey.length === 64)
     const adminEntry = await state.get('/admin')
@@ -115,7 +115,7 @@ export const apply = {
     tx.addOplog(op.pubkey)
   },
 
-  REMOVE_PARTICIPANT (tx, op) {
+  async REMOVE_PARTICIPANT (tx, op) {
     assert(typeof op.pubkey === 'string')
     assert(op.pubkey.length === 64)
     const adminEntry = await state.get('/admin')

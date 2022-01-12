@@ -2,7 +2,7 @@ import Hyperbee from 'hyperbee'
 // @ts-ignore no types available -prf
 import { Node } from 'hyperbee/lib/messages.js'
 import * as msgpackr from 'msgpackr'
-import { IndexLogEntry } from '../../types.js'
+import { IndexLogEntry } from '../types.js'
 
 const SEP = `\x00`
 const MIN = `\x00`

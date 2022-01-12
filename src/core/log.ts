@@ -23,7 +23,7 @@ import {
 import {
   PARTICIPANT_PATH_PREFIX,
 } from '../schemas.js'
-import { beeShallowList, pathToBeekey, beekeyToPath } from './util/hyper.js'
+import { beeShallowList, pathToBeekey, beekeyToPath } from '../util/hyper.js'
 import { Storage } from './storage.js'
 // @ts-ignore no types available -prf
 import * as c from 'compact-encoding'

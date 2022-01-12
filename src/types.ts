@@ -1,5 +1,5 @@
 import { AckSchema } from './schemas.js'
-import { Database } from './lib/database.js'
+import { Database } from './core/database.js'
 
 export type Key = string|Buffer
 

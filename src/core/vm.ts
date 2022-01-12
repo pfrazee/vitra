@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url'
 import { Sandbox as ConfineSandbox } from 'confine-sandbox'
 import { Database } from './database.js'
 import { keyToStr, keyToBuf } from '../types.js'
-import { Resource } from './util/resource.js'
+import { Resource } from '../util/resource.js'
 import { ContractParseError, ContractRuntimeError } from './errors.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

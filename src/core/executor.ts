@@ -1,5 +1,5 @@
 import { EventIterator } from 'event-iterator'
-import { Resource } from './util/resource.js'
+import { Resource } from '../util/resource.js'
 // @ts-ignore no types available -prf
 import assert from 'assert'
 // @ts-ignore no types available -prf
