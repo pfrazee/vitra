@@ -24,8 +24,8 @@ export class DataDirectory {
     return join(this.path, 'tx')
   }
 
-  transactionFilePath (tx: Transaction) {
-    return join(this.transactionsPath, `${tx.txId}.json`)
+  transactionFilePath (tx: Transaction|string) {
+    return join(this.transactionsPath, `${tx instanceof Transaction ? tx.txId : tx}.json`)
   }
 
   async info (): Promise<DataDirectoryInfo> {
@@ -68,5 +68,18 @@ export class DataDirectory {
     await fsp.mkdir(this.transactionsPath, {recursive: true}).catch(_ => undefined)
     await fsp.writeFile(filepath, JSON.stringify(obj, null, 2))
     return obj.isProcessed
+  }
+
+  async listTrackedTxIds (): Promise<string[]> {
+    const names = await fsp.readdir(this.transactionsPath).catch(_ => [])
+    return names.filter(name => name.endsWith('.json')).map(name => name.slice(0, name.length - 5))
+  }
+
+  async readTrackedTx (txId: string): Promise<any> {
+    try {
+      return JSON.parse(await fsp.readFile(this.transactionFilePath(txId), 'utf-8'))
+    } catch (e) {
+      return undefined
+    }
   }
 }

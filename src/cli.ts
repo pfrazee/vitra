@@ -1,11 +1,13 @@
 import repl, { REPLServer } from 'repl'
 import fs, { promises as fsp } from 'fs'
 import os from 'os'
+import util from 'util'
 import { resolve, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { DataDirectory } from './server/data-directory.js'
 import { Server } from './server/server.js'
 import { Log } from './core/log.js'
+import { Transaction } from './core/transactions.js'
 import { keyToBuf } from './types.js'
 import { listExportedMethods } from './util/parser.js'
 import chalk from 'chalk'
@@ -17,6 +19,7 @@ const pkg = JSON.parse(fs.readFileSync(join(__dirname, '..', 'package.json'), 'u
 // globals
 // =
 
+let replInst: REPLServer
 const state: {
   workingDir: DataDirectory|undefined,
   server: Server|undefined,
@@ -35,7 +38,7 @@ async function main () {
   banner()
   await logStatus()
   console.log('Type .help if you get lost')
-  const inst = createREPL()
+  replInst = createREPL()
 }
 
 // commands
@@ -44,7 +47,6 @@ async function main () {
 function createREPL (): REPLServer {
   const inst = repl.start('vitra $ ')
   inst.setupHistory(join(os.homedir(), '.vitra-history'), ()=>{})
-  inst.context.db = createDBProxy()
   inst.on('exit', async () => {
     await resetAll()
     process.exit()
@@ -95,6 +97,33 @@ function createREPL (): REPLServer {
     }
   })
 
+  inst.defineCommand('history', {
+    help: 'Output the history of a log. (Pass the pubkey or "index".)',
+    async action (pubkey: string) {
+      this.clearBufferedCommand()
+      await logHist(pubkey)
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('list', {
+    help: 'List entries in the index at the given path.',
+    async action (path: string) {
+      this.clearBufferedCommand()
+      await logIndexList(path)
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('get', {
+    help: 'Get an entry in the index at the given path.',
+    async action (path: string) {
+      this.clearBufferedCommand()
+      await logIndexGet(path)
+      this.displayPrompt()
+    }
+  })
+
   inst.defineCommand('source', {
     help: 'Output the source code for the current database\'s contract.',
     async action () {
@@ -113,11 +142,29 @@ function createREPL (): REPLServer {
     }
   })
 
-  inst.defineCommand('transactions', {
+  inst.defineCommand('txlist', {
     help: 'List all tracked transactions with this database.',
     async action () {
       this.clearBufferedCommand()
-      console.log('TODO')
+      await logTxList()
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('tx', {
+    help: 'View a tracked transaction with this database.',
+    async action (txId: string) {
+      this.clearBufferedCommand()
+      await logTx(txId)
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('txverify', {
+    help: 'Verify the inclusion of a tracked transaction with this database.',
+    async action (txId: string) {
+      this.clearBufferedCommand()
+      await verifyTx(txId)
       this.displayPrompt()
     }
   })
@@ -140,7 +187,7 @@ function createREPL (): REPLServer {
     help: 'Verify the execution of this database.',
     async action () {
       this.clearBufferedCommand()
-      console.log('TODO')
+      await verify()
       this.displayPrompt()
     }
   })
@@ -211,14 +258,6 @@ function createREPL (): REPLServer {
   return inst
 }
 
-function createDBProxy () {
-  return new Proxy({}, {
-    get: function (obj: any, prop: 'string') {
-      return () => console.log(prop, 'todo')
-    }
-  })
-}
-
 // helpers
 // =
 
@@ -245,12 +284,16 @@ async function resetServer () {
     await state.server.close()
   }
   state.server = undefined
+  replInst.context.server = undefined
+  replInst.context.db = undefined
 }
 
 function setupServer () {
   if (state.server) {
     state.server.db.on('error', onServerDbError)
     console.log(`Database initialized.`)
+    replInst.context.server = state.server
+    replInst.context.db = state.server.db
   }
 }
 
@@ -279,6 +322,57 @@ function logInfo () {
   for (let i = 0; i < state.server.db.oplogs.length; i++) {
     logLog(`Oplog ${i}`, state.server.db.oplogs.at(i) as Log)
   }
+}
+
+async function logHist (pubkey: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+
+  let pubkeyBuf: Buffer
+  try {
+    if (pubkey === 'index') pubkeyBuf = state.server.db.index.pubkey
+    else pubkeyBuf = keyToBuf(pubkey)
+  } catch (e: any) {
+    console.log(chalk.red(`Invalid public key.`))
+    console.log(chalk.red(`  ${e.message}`))
+    return
+  }
+
+  if (state.server.db.index.pubkey.equals(pubkeyBuf)) {
+    for await (const entry of state.server.db.index.history()) {
+      console.log(util.inspect(entry, false, Infinity, true))
+    }
+  } else {
+    const oplog = state.server.db.oplogs.find(item => item.pubkey.equals(pubkeyBuf as Buffer))
+    if (!oplog) return console.log(chalk.red(`Log not found`))
+
+    for (let i = 0; i < oplog.length; i++) {
+      const block = await oplog.get(i)
+      console.log(i, util.inspect(block.value, false, Infinity, true))
+    }
+  }
+}
+
+async function logIndexList (path: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+  path = path || '/'
+
+  for (const entry of await state.server.db.index.list(path)) {
+    if (entry.container) {
+      console.log(`${entry.path}/`)
+    } else {
+      console.log(`${entry.path} = ${util.inspect(entry.value, false, Infinity, true)}`)
+    }
+  }
+}
+
+async function logIndexGet (path: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+  const entry = await state.server.db.index.get(path)
+  if (!entry) console.log(chalk.red(`No entry found`))
+  else console.log(util.inspect(entry, false, Infinity, true))
 }
 
 async function logSource () {
@@ -311,6 +405,40 @@ async function logSourceMethods () {
   for (const {name, args} of methods) {
     if (args) console.log(`${name} ${args}`)
     else console.log(`${name}`)
+  }
+}
+
+async function logTxList () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  const txIds = await state.workingDir.listTrackedTxIds()
+  for (const txId of txIds) {
+    console.log(txId)
+  }
+}
+
+async function logTx (txId: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!txId) return console.log(chalk.red(`Must specify the transaction ID`))
+  const txInfo = await state.workingDir.readTrackedTx(txId)
+  if (!txInfo) return console.log(chalk.red(`No transaction data found`))
+  console.log(util.inspect(txInfo, false, Infinity, true))
+}
+
+async function verifyTx (txId: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+  if (!txId) return console.log(chalk.red(`Must specify the transaction ID`))
+  const txInfo = await state.workingDir.readTrackedTx(txId)
+  if (!txInfo) return console.log(chalk.red(`No transaction data found`))
+  const tx = Transaction.fromJSON(state.server.db, txInfo)
+  try {
+    console.log(`Verifying transaction...`)
+    await tx.verifyInclusion()
+    console.log('Verified!')
+  } catch (e: any) {
+    console.log(chalk.red(`Verification failed! Details:`))
+    console.log(e)
+    console.log(chalk.red(`This is a serious issue. Record the details above and share it with members of this database.`))
   }
 }
 
@@ -420,6 +548,21 @@ async function executeCall (method: string, args: string[]) {
     console.log(chalk.red(`Your call failed to execute.`))
     console.log(chalk.red(`  ${e.message}`))
     return
+  }
+}
+
+async function verify () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+
+  try {
+    console.log(`Verifying execution...`)
+    await state.server.db.verify()
+    console.log(`Database verified!`)
+  } catch (e) {
+    console.log(chalk.red(`Verification failed! Details:`))
+    console.log(e)
+    console.log(chalk.red(`This is a serious issue. Record the details above and share it with members of this database.`))
   }
 }
 
