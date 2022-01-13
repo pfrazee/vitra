@@ -6,10 +6,8 @@ import { resolve, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { DataDirectory } from './server/data-directory.js'
 import { Server } from './server/server.js'
-import { Log } from './core/log.js'
-import { Transaction } from './core/transactions.js'
+import { Client, createLoopbackClient } from './server/rpc.js'
 import { keyToBuf } from './types.js'
-import { listExportedMethods } from './util/parser.js'
 import chalk from 'chalk'
 import minimist from 'minimist'
 
@@ -23,10 +21,12 @@ let replInst: REPLServer
 const state: {
   workingDir: DataDirectory|undefined,
   server: Server|undefined,
+  client: Client|undefined,
   confirmDestroyPath: string|undefined
 } = {
   workingDir: undefined,
   server: undefined,
+  client: undefined,
   confirmDestroyPath: undefined
 }
 
@@ -90,9 +90,9 @@ function createREPL (): REPLServer {
 
   inst.defineCommand('info', {
     help: 'Output detailed information about the current database.',
-    action () {
+    async action () {
       this.clearBufferedCommand()
-      logInfo()
+      await logInfo()
       this.displayPrompt()
     }
   })
@@ -284,16 +284,18 @@ async function resetServer () {
     await state.server.close()
   }
   state.server = undefined
+  state.client = undefined
   replInst.context.server = undefined
-  replInst.context.db = undefined
+  replInst.context.rpc = undefined
 }
 
 function setupServer () {
   if (state.server) {
     state.server.db.on('error', onServerDbError)
     console.log(`Database initialized.`)
+    state.client = createLoopbackClient(state.server)
     replInst.context.server = state.server
-    replInst.context.db = state.server.db
+    replInst.context.rpc = state.client
   }
 }
 
@@ -307,137 +309,125 @@ async function logStatus () {
   }
 }
 
-function logInfo () {
+async function logInfo () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
- 
-  const labelLength = `Oplog ${state.server.db.oplogs.length}`.length
-
-  console.log(chalk.bold(`${'Log'.padEnd(labelLength)} | ${'Pubkey'.padEnd(64)} | Length | Owner?`))
-
-  const logLog = (label: string, log: Log) => {
-    console.log(`${label.padEnd(labelLength)} | ${log.pubkey.toString('hex')} | ${String(log.length).padEnd(6)} | ${log.writable ? chalk.green('Yes') : 'No'}`)
-  }
-  logLog('Index', state.server.db.index)
-  for (let i = 0; i < state.server.db.oplogs.length; i++) {
-    logLog(`Oplog ${i}`, state.server.db.oplogs.at(i) as Log)
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  try {
+    const info = await state.client.getInfo()
+    const labelLength = info.logs.reduce((acc: number, log: any) => Math.max(acc, log.label.length), 0)
+    console.log(chalk.bold(`${'Log'.padEnd(labelLength)} | ${'Pubkey'.padEnd(64)} | Length | Owner?`))
+    for (const log of info.logs) {
+      console.log(`${log.label.padEnd(labelLength)} | ${log.pubkey} | ${String(log.length).padEnd(6)} | ${log.writable ? chalk.green('Yes') : 'No'}`)
+    }
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
 async function logHist (pubkey: string) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
 
-  let pubkeyBuf: Buffer
   try {
-    if (pubkey === 'index') pubkeyBuf = state.server.db.index.pubkey
-    else pubkeyBuf = keyToBuf(pubkey)
+    const res = await state.client.logGetHistory({pubkey})
+    for (let i = 0; i < res.entries.length; i++) {
+      console.log(i, util.inspect(res.entries[i], false, Infinity, true))
+    }
   } catch (e: any) {
-    console.log(chalk.red(`Invalid public key.`))
-    console.log(chalk.red(`  ${e.message}`))
-    return
-  }
-
-  if (state.server.db.index.pubkey.equals(pubkeyBuf)) {
-    for await (const entry of state.server.db.index.history()) {
-      console.log(util.inspect(entry, false, Infinity, true))
-    }
-  } else {
-    const oplog = state.server.db.oplogs.find(item => item.pubkey.equals(pubkeyBuf as Buffer))
-    if (!oplog) return console.log(chalk.red(`Log not found`))
-
-    for (let i = 0; i < oplog.length; i++) {
-      const block = await oplog.get(i)
-      console.log(i, util.inspect(block.value, false, Infinity, true))
-    }
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
 async function logIndexList (path: string) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
   path = path || '/'
-
-  for (const entry of await state.server.db.index.list(path)) {
-    if (entry.container) {
-      console.log(`${entry.path}/`)
-    } else {
-      console.log(`${entry.path} = ${util.inspect(entry.value, false, Infinity, true)}`)
+  try {
+    const res = await state.client.indexList({path})
+    for (const entry of res.entries) {
+      if (entry.container) {
+        console.log(`${entry.path}/`)
+      } else {
+        console.log(`${entry.path} = ${util.inspect(entry.value, false, Infinity, true)}`)
+      }
     }
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
 async function logIndexGet (path: string) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
-  const entry = await state.server.db.index.get(path)
-  if (!entry) console.log(chalk.red(`No entry found`))
-  else console.log(util.inspect(entry, false, Infinity, true))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  try {
+    const entry = await state.client.indexGet({path})
+    console.log(util.inspect(entry, false, Infinity, true))
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  }
 }
 
 async function logSource () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
-
+  if (!state.client) return console.log(chalk.red(`No database active.`))
   try {
-    const source = await state.server.db._readContractCode()
-    console.log(source)
+    const res = await state.client.getSource()
+    console.log(res.source)
   } catch (e: any) {
-    console.log(chalk.red(`Failed to read the database contract source.`))
-    console.log(chalk.red(`  ${e.message}`))
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
 async function logSourceMethods () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
-
-  let source
+  if (!state.client) return console.log(chalk.red(`No database active.`))
   try {
-    source = await state.server.db._readContractCode()
+    const res = await state.client.listMethods()
+    for (const {name, args} of res.methods) {
+      if (args) console.log(`${name} ${args}`)
+      else console.log(`${name}`)
+    }
   } catch (e: any) {
-    console.log(chalk.red(`Failed to read the database contract source.`))
-    console.log(chalk.red(`  ${e.message}`))
-    return
-  }
-
-  const methods = listExportedMethods(source)
-  for (const {name, args} of methods) {
-    if (args) console.log(`${name} ${args}`)
-    else console.log(`${name}`)
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
 async function logTxList () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  const txIds = await state.workingDir.listTrackedTxIds()
-  for (const txId of txIds) {
-    console.log(txId)
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  try {
+    const res = await state.client.txList()
+    for (const txId of res.txIds) {
+      console.log(txId)
+    }
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
 async function logTx (txId: string) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
   if (!txId) return console.log(chalk.red(`Must specify the transaction ID`))
-  const txInfo = await state.workingDir.readTrackedTx(txId)
-  if (!txInfo) return console.log(chalk.red(`No transaction data found`))
-  console.log(util.inspect(txInfo, false, Infinity, true))
+  try {
+    const res = await state.client.txGet({txId})
+    console.log(util.inspect(res, false, Infinity, true))
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  }
 }
 
 async function verifyTx (txId: string) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
   if (!txId) return console.log(chalk.red(`Must specify the transaction ID`))
-  const txInfo = await state.workingDir.readTrackedTx(txId)
-  if (!txInfo) return console.log(chalk.red(`No transaction data found`))
-  const tx = Transaction.fromJSON(state.server.db, txInfo)
   try {
     console.log(`Verifying transaction...`)
-    await tx.verifyInclusion()
+    await state.client.txVerify({txId})
     console.log('Verified!')
   } catch (e: any) {
     console.log(chalk.red(`Verification failed! Details:`))
-    console.log(e)
+    console.log(e.message || e.toString())
     console.log(chalk.red(`This is a serious issue. Record the details above and share it with members of this database.`))
   }
 }
@@ -498,7 +488,7 @@ async function init (contractSourcePath: string) {
     if (!contractSource) throw new Error('No source found')
   } catch (e: any) {
     console.log(chalk.red(`Failed to read the contract source at ${contractSourcePath}.`))
-    console.log(chalk.red(`  ${e.message}`))
+    console.log(chalk.red(`  ${e.message || e.toString()}`))
     return
   }
 
@@ -518,7 +508,7 @@ async function load (pubkey: string) {
     pubkeyBuf = keyToBuf(pubkey)
   } catch (e: any) {
     console.log(chalk.red(`Invalid public key.`))
-    console.log(chalk.red(`  ${e.message}`))
+    console.log(chalk.red(`  ${e.message || e.toString()}`))
     return
   }
 
@@ -529,39 +519,38 @@ async function load (pubkey: string) {
 
 async function executeCall (method: string, args: string[]) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
   if (!method) return console.log(chalk.red(`Must specify the method to call.`))
   args = args || []
   const argsObj = minimist(args)
   // @ts-ignore dont care -prf
   delete argsObj._
   try {
-    const tx = await state.server.db.call(method, argsObj)
-    if (tx.ops.length) {
-      console.log(`Transaction ID: ${tx.txId}`)
-      state.workingDir.trackTransaction(tx)
+    const res = await state.client.dbCall({method, args: argsObj})
+    if (res.txId) {
+      console.log(`Transaction ID: ${res.txId}`)
     }
-    if (typeof tx.response !== 'undefined') {
-      console.log('Response:', tx.response)
+    if (typeof res.response !== 'undefined') {
+      console.log('Response:', res.response)
     }
   } catch (e: any) {
     console.log(chalk.red(`Your call failed to execute.`))
-    console.log(chalk.red(`  ${e.message}`))
+    console.log(chalk.red(e.message || e.toString()))
     return
   }
 }
 
 async function verify () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
 
   try {
     console.log(`Verifying execution...`)
-    await state.server.db.verify()
+    await state.client.dbVerify()
     console.log(`Database verified!`)
-  } catch (e) {
+  } catch (e: any) {
     console.log(chalk.red(`Verification failed! Details:`))
-    console.log(e)
+    console.log(e.message || e.toString())
     console.log(chalk.red(`This is a serious issue. Record the details above and share it with members of this database.`))
   }
 }
