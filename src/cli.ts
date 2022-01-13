@@ -169,6 +169,24 @@ function createREPL (): REPLServer {
     }
   })
 
+  inst.defineCommand('fraudlist', {
+    help: 'List all tracked fraud-proofs with this database.',
+    async action () {
+      this.clearBufferedCommand()
+      await logFraudList()
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('fraud', {
+    help: 'View a tracked fraud-proof with this database.',
+    async action (fraudId: string) {
+      this.clearBufferedCommand()
+      await logFraud(fraudId)
+      this.displayPrompt()
+    }
+  })
+
   inst.defineCommand('call', {
     help: 'Call a method on the current database.',
     async action (params: string) {
@@ -423,12 +441,42 @@ async function verifyTx (txId: string) {
   if (!txId) return console.log(chalk.red(`Must specify the transaction ID`))
   try {
     console.log(`Verifying transaction...`)
-    await state.client.txVerify({txId})
-    console.log('Verified!')
+    const res = await state.client.txVerify({txId})
+    if (res.success) {
+      console.log(`Transaction verified!`)
+    } else {
+      console.log(chalk.red(`Verification failed! Details:`))
+      console.log(res.fraudDescription)
+      console.log(chalk.red(`This is a serious issue. The details have been recorded under ID ${res.fraudId}. Use .fraudlist and .fraud to view these details.`))
+    }
   } catch (e: any) {
-    console.log(chalk.red(`Verification failed! Details:`))
-    console.log(e.message || e.toString())
-    console.log(chalk.red(`This is a serious issue. Record the details above and share it with members of this database.`))
+    console.log(chalk.red(`Verification failed to execute. This error does not necessarily indicate that fraud has occurred.`))
+    console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
+async function logFraudList () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  try {
+    const res = await state.client.fraudList()
+    for (const fraudId of res.fraudIds) {
+      console.log(fraudId)
+    }
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
+async function logFraud (fraudId: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  if (!fraudId) return console.log(chalk.red(`Must specify the transaction ID`))
+  try {
+    const res = await state.client.fraudGet({fraudId})
+    console.log(util.inspect(res, false, Infinity, true))
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 
@@ -543,15 +591,19 @@ async function executeCall (method: string, args: string[]) {
 async function verify () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
-
   try {
     console.log(`Verifying execution...`)
-    await state.client.dbVerify()
-    console.log(`Database verified!`)
+    const res = await state.client.dbVerify()
+    if (res.success) {
+      console.log(`Database verified!`)
+    } else {
+      console.log(chalk.red(`Verification failed! Details:`))
+      console.log(res.fraudDescription)
+      console.log(chalk.red(`This is a serious issue. The details have been recorded under ID ${res.fraudId}. Use .fraudlist and .fraud to view these details.`))
+    }
   } catch (e: any) {
-    console.log(chalk.red(`Verification failed! Details:`))
-    console.log(e.message || e.toString())
-    console.log(chalk.red(`This is a serious issue. Record the details above and share it with members of this database.`))
+    console.log(chalk.red(`Verification failed to execute. This error does not necessarily indicate that fraud has occurred.`))
+    console.log(chalk.red(e.message || e.toString()))
   }
 }
 

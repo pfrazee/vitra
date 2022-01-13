@@ -1,6 +1,7 @@
 import { promises as fsp } from 'fs'
 import { join } from 'path'
 import { Config } from './config.js'
+import { FraudProof } from '../core/fraud-proofs.js'
 import { Transaction } from '../core/transactions.js'
 
 export interface DataDirectoryInfo {
@@ -26,6 +27,14 @@ export class DataDirectory {
 
   transactionFilePath (tx: Transaction|string) {
     return join(this.transactionsPath, `${tx instanceof Transaction ? tx.txId : tx}.json`)
+  }
+
+  get fraudsPath () {
+    return join(this.path, 'fraud')
+  }
+
+  fraudFilePath (fraudId: string) {
+    return join(this.fraudsPath, `${fraudId}.json`)
   }
 
   async info (): Promise<DataDirectoryInfo> {
@@ -78,6 +87,26 @@ export class DataDirectory {
   async readTrackedTx (txId: string): Promise<any> {
     try {
       return JSON.parse(await fsp.readFile(this.transactionFilePath(txId), 'utf-8'))
+    } catch (e) {
+      return undefined
+    }
+  }
+
+  async writeFraud (fraudId: string, fraud: FraudProof) {
+    const filepath = this.fraudFilePath(fraudId)
+    const obj = fraud.toJSON()
+    await fsp.mkdir(this.fraudsPath, {recursive: true}).catch(_ => undefined)
+    await fsp.writeFile(filepath, JSON.stringify(obj, null, 2))
+  }
+
+  async listTrackedFraudIds (): Promise<string[]> {
+    const names = await fsp.readdir(this.fraudsPath).catch(_ => [])
+    return names.filter(name => name.endsWith('.json')).map(name => name.slice(0, name.length - 5))
+  }
+
+  async readTrackedFraud (fraudId: string): Promise<any> {
+    try {
+      return JSON.parse(await fsp.readFile(this.fraudFilePath(fraudId), 'utf-8'))
     } catch (e) {
       return undefined
     }

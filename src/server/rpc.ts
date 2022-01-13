@@ -4,6 +4,7 @@ import * as msgpackr from 'msgpackr'
 import { Server } from './server.js'
 import { Transaction } from '../core/transactions.js'
 import { Log } from '../core/log.js'
+import { FraudProof } from '../core/fraud-proofs.js'
 import { listExportedMethods } from '../util/parser.js'
 import { keyToBuf } from '../types.js'
 
@@ -82,6 +83,20 @@ interface TxVerifyParams {
   txId: string
 }
 
+interface FraudListResponse {
+  fraudIds: string[]
+}
+
+interface FraudGetParams {
+  fraudId: string
+}
+
+interface TxVerifyResponse {
+  success: boolean
+  fraudId?: string
+  fraudDescription?: string
+}
+
 interface DbCallParams {
   method: string
   args: any
@@ -90,6 +105,12 @@ interface DbCallParams {
 interface DbCallResponse {
   txId: string|undefined
   response: any
+}
+
+interface DbVerifyResponse {
+  success: boolean
+  fraudId?: string
+  fraudDescription?: string
 }
 
 export interface Client {
@@ -101,9 +122,11 @@ export interface Client {
   indexGet (params: IndexGetParams): Promise<IndexGetResponse>
   txList (): Promise<TxListResponse>
   txGet (params: TxGetParams): Promise<TxGetResponse>
-  txVerify (params: TxVerifyParams): Promise<void>
+  txVerify (params: TxVerifyParams): Promise<TxVerifyResponse>
+  fraudList (): Promise<FraudListResponse>
+  fraudGet (params: FraudGetParams): Promise<any>
   dbCall (params: DbCallParams): Promise<DbCallResponse>
-  dbVerify (): Promise<void>
+  dbVerify (): Promise<DbVerifyResponse>
 }
 
 function createClient (handler: Function): Client {
@@ -151,15 +174,23 @@ function createClient (handler: Function): Client {
       return request('txGet', params)
     },
   
-    txVerify (params: TxVerifyParams): Promise<void> {
+    txVerify (params: TxVerifyParams): Promise<TxVerifyResponse> {
       return request('txVerify', params)
+    },
+  
+    fraudList (): Promise<FraudListResponse> {
+      return request('fraudList')
+    },
+  
+    fraudGet (params: FraudGetParams): Promise<any> {
+      return request('fraudGet', params)
     },
   
     dbCall (params: DbCallParams): Promise<DbCallResponse> {
       return request('dbCall', params)
     },
   
-    dbVerify (): Promise<void> {
+    dbVerify (): Promise<DbVerifyResponse> {
       return request('dbVerify')
     }
   }
@@ -247,10 +278,27 @@ function createServer (server: Server) {
       const tx = Transaction.fromJSON(server.db, txInfo)
       try {
         await tx.verifyInclusion()
+        return {success: true}
       } catch (e: any) {
-        // TODO save failure details
+        if (e instanceof FraudProof) {
+          const fraudId = String(Date.now())
+          server.dir.writeFraud(fraudId, e)
+          return {
+            success: false,
+            fraudId,
+            fraudDescription: util.inspect(e)
+          }
+        }
         throw e
       }
+    },
+
+    async fraudList (): Promise<FraudListResponse> {
+      return {fraudIds: await server.dir.listTrackedFraudIds()}
+    },
+  
+    async fraudGet (params: FraudGetParams): Promise<any> {
+      return await server.dir.readTrackedFraud(params?.fraudId)
     },
 
     async dbCall (params: any) {
@@ -266,11 +314,20 @@ function createServer (server: Server) {
       }
     },
 
-    async dbVerify (params: any) {
+    async dbVerify (): Promise<DbVerifyResponse> {
       try {
         await server.db.verify()
-      } catch (e) {
-        // TODO save failure details
+        return {success: true}
+      } catch (e: any) {
+        if (e instanceof FraudProof) {
+          const fraudId = String(Date.now())
+          server.dir.writeFraud(fraudId, e)
+          return {
+            success: false,
+            fraudId,
+            fraudDescription: util.inspect(e)
+          }
+        }
         throw e
       }
     }

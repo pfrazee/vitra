@@ -8,6 +8,10 @@ export class FraudProof extends Error {
     super(message)
     this.name = this.constructor.name
   }
+
+  toJSON () {
+    throw new Error('Must be overridden')
+  }
 }
 
 export class LogForkFraudProof extends FraudProof {
