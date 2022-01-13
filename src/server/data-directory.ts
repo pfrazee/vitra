@@ -3,6 +3,7 @@ import { join } from 'path'
 import { Config } from './config.js'
 import { FraudProof } from '../core/fraud-proofs.js'
 import { Transaction } from '../core/transactions.js'
+import EventEmitter from 'events'
 
 export interface DataDirectoryInfo {
   exists: boolean
@@ -96,6 +97,11 @@ export class DataDirectory {
     }
   }
 
+  async watchFraudsFolder () {
+    await fsp.mkdir(this.fraudsPath, {recursive: true}).catch(_ => undefined)
+    return new FraudFolderWatcher(this.fraudsPath)
+  }
+
   async writeFraud (fraudId: string, fraud: FraudProof) {
     const filepath = this.fraudFilePath(fraudId)
     const obj = fraud.toJSON()
@@ -114,5 +120,36 @@ export class DataDirectory {
     } catch (e) {
       return undefined
     }
+  }
+}
+
+export class FraudFolderWatcher extends EventEmitter {
+  private watchAbort: AbortController
+
+  constructor (public path: string) {
+    super()
+    this.watchAbort = new AbortController()
+    const watcher = fsp.watch(path, {persistent: false, signal: this.watchAbort.signal})
+    this.readAndEmit()
+    ;(async () => {
+      try {
+        for await (const event of watcher) {
+          this.readAndEmit()
+        }
+      } catch (e: any) {
+        if (e.name !== 'AbortError') this.emit('error', e)
+      }
+    })()
+  }
+
+  private async readAndEmit () {
+    const names = await fsp.readdir(this.path).catch(_ => [])
+    if (names.length > 0) {
+      this.emit('frauds', names.filter(name => name.endsWith('.json')).map(name => name.slice(0, name.length - 5)))
+    }
+  }
+
+  async close () {
+    this.watchAbort.abort()
   }
 }

@@ -104,6 +104,7 @@ export class ContractMonitor extends Resource {
   }
 
   private async validate (entry: IndexHistoryEntry) {
+    if (!this.verifying) return
     this.assert(entry.seq === this.expectedSeq, new UnexpectedSeqError({entry, expectedSeq: this.expectedSeq}))
     if (this.vm) {
       this.vm.checkoutIndexAt(entry.seq)

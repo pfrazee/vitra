@@ -1,6 +1,5 @@
 import util from 'util'
 import net from 'net'
-import { join } from 'path'
 import frame from 'frame-stream'
 import * as jsonrpc from 'jsonrpc-lite'
 import * as msgpackr from 'msgpackr'
@@ -52,6 +51,12 @@ interface IndexGetParams {
 }
 
 type IndexGetResponse = any
+
+interface IndexDangerousWriteParams {
+  type: 'put'|'del'
+  path: string
+  value: any
+}
 
 interface TxListResponse {
   txIds: string[]
@@ -123,6 +128,7 @@ export interface Client {
   logGetHistory (params: LogGetHistoryParams): Promise<LogGetHistoryResponse>
   indexList (params: IndexListParams): Promise<IndexListResponse>
   indexGet (params: IndexGetParams): Promise<IndexGetResponse>
+  indexDangerousWrite (params: IndexDangerousWriteParams): Promise<void>
   txList (): Promise<TxListResponse>
   txGet (params: TxGetParams): Promise<TxGetResponse>
   txVerify (params: TxVerifyParams): Promise<TxVerifyResponse>
@@ -130,6 +136,8 @@ export interface Client {
   fraudGet (params: FraudGetParams): Promise<any>
   dbCall (params: DbCallParams): Promise<DbCallResponse>
   dbVerify (): Promise<DbVerifyResponse>
+  dbStartMonitor (): Promise<void>
+  dbStopMonitor (): Promise<void>
 }
 
 function createClient (handler: Function): Client {
@@ -168,6 +176,10 @@ function createClient (handler: Function): Client {
     indexGet (params: IndexGetParams): Promise<IndexGetResponse> {
       return request('indexGet', params)
     },
+    
+    indexDangerousWrite (params: IndexDangerousWriteParams): Promise<void> {
+      return request('indexDangerousWrite', params)
+    },
   
     txList (): Promise<TxListResponse> {
       return request('txList')
@@ -195,6 +207,14 @@ function createClient (handler: Function): Client {
   
     dbVerify (): Promise<DbVerifyResponse> {
       return request('dbVerify')
+    },
+
+    dbStartMonitor (): Promise<void> {
+      return request('dbStartMonitor')
+    },
+
+    dbStopMonitor (): Promise<void> {
+      return request('dbStopMonitor')
     }
   }
 }
@@ -266,6 +286,11 @@ function createServer (server: Server) {
       if (!entry) throw new Error(`No entry found`)
       return entry
     },
+    
+    async indexDangerousWrite (params: IndexDangerousWriteParams) {
+      await server.db.index.dangerousBatch([params])
+      return `${params.path} written.`
+    },
 
     async txList (params: any) {
       return {txIds: await server.dir.listTrackedTxIds()}
@@ -333,6 +358,14 @@ function createServer (server: Server) {
         }
         throw e
       }
+    },
+
+    async dbStartMonitor (): Promise<void> {
+      await server.startMonitor()
+    },
+
+    async dbStopMonitor (): Promise<void> {
+      await server.stopMonitor()
     }
   }
 
@@ -344,7 +377,7 @@ function createServer (server: Server) {
       try {
         const param = Array.isArray(parsed.payload.params) ? parsed.payload.params[0] : []
         const res = await handlers[parsed.payload.method](param)
-        return msgpackr.pack(jsonrpc.success(parsed.payload.id, res))
+        return msgpackr.pack(jsonrpc.success(parsed.payload.id, typeof res !== 'undefined' ? res : 0))
       } catch (e: any) {
         const msg = e[util.inspect.custom] ? util.inspect(e) : (e.message || e.toString())
         const rpcErr = new jsonrpc.JsonRpcError(msg, e.code || -32000, e.data)

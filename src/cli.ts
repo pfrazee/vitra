@@ -4,7 +4,7 @@ import os from 'os'
 import util from 'util'
 import { resolve, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { DataDirectory } from './server/data-directory.js'
+import { DataDirectory, FraudFolderWatcher } from './server/data-directory.js'
 import { Server } from './server/server.js'
 import { Client, createLoopbackClient, connectServerSocket } from './server/rpc.js'
 import * as serverProc from './server/process.js'
@@ -23,11 +23,13 @@ const state: {
   workingDir: DataDirectory|undefined,
   server: Server|undefined,
   client: Client|undefined,
+  fraudWatcher: FraudFolderWatcher|undefined,
   confirmDestroyPath: string|undefined
 } = {
   workingDir: undefined,
   server: undefined,
   client: undefined,
+  fraudWatcher: undefined,
   confirmDestroyPath: undefined
 }
 
@@ -218,7 +220,16 @@ function createREPL (): REPLServer {
     help: 'Persistently watch and verify the execution of this database.',
     async action () {
       this.clearBufferedCommand()
-      console.log('TODO')
+      await monitor()
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('monitorend', {
+    help: 'Stop monitoring this database.',
+    async action () {
+      this.clearBufferedCommand()
+      await monitorEnd()
       this.displayPrompt()
     }
   })
@@ -314,6 +325,10 @@ async function resetServer () {
     console.log(`Stopping host server for ${state.server.dir.path}`)
     await state.server.close()
   }
+  if (state.fraudWatcher) {
+    state.fraudWatcher.close()
+    state.fraudWatcher = undefined
+  }
   state.server = undefined
   state.client = undefined
   replInst.context.server = undefined
@@ -327,6 +342,7 @@ function setupServer () {
     state.client = createLoopbackClient(state.server)
     replInst.context.server = state.server
     replInst.context.rpc = state.client
+    setupFraudWatcher()
   }
 }
 
@@ -335,6 +351,22 @@ async function setupSocket () {
   state.client = await connectServerSocket(state.workingDir.socketFilePath)
   replInst.context.rpc = state.client
   console.log(`Connected to database process.`)
+  setupFraudWatcher()
+}
+
+async function setupFraudWatcher () {
+  if (!state.workingDir) return
+  if (state.fraudWatcher) return
+  state.fraudWatcher = await state.workingDir.watchFraudsFolder()
+  state.fraudWatcher.on('frauds', (names: string[]) => {
+    console.log('')
+    console.log(chalk.red(`Contract violations have been detected in this database.`))
+    console.log(chalk.red(`This is a serious issue. Use .fraudlist and .fraud to review the violations.`))
+  })
+  state.fraudWatcher.on('error', (e: any) => {
+    console.log(chalk.red(`An unexpected internal error occurred:`))
+    console.log(chalk.red(e.message || e.toString()))
+  })
 }
 
 async function logStatus () {
@@ -346,6 +378,9 @@ async function logStatus () {
       console.log(`Database running in a separate process.`)
     } else if (state.server) {
       console.log(`Database running in this process and will close after this session.`)
+    }
+    if (info.config?.monitor) {
+      console.log(chalk.green(`Monitor active.`))
     }
   } else {
     console.log(`Current directory: (none)`)
@@ -632,6 +667,28 @@ async function verify () {
     }
   } catch (e: any) {
     console.log(chalk.red(`Verification failed to execute. This error does not necessarily indicate that fraud has occurred.`))
+    console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
+async function monitor () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  try {
+    await state.client.dbStartMonitor()
+    console.log(`Monitor started.`)
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
+async function monitorEnd () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  try {
+    await state.client.dbStopMonitor()
+    console.log(`Monitor stopped.`)
+  } catch (e: any) {
     console.log(chalk.red(e.message || e.toString()))
   }
 }
