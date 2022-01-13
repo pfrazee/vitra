@@ -1,14 +1,21 @@
 # Vitra
 
+```
+██╗   ██╗██╗████████╗██████╗  █████╗
+██║   ██║██║╚══██╔══╝██╔══██╗██╔══██╗
+██║   ██║██║   ██║   ██████╔╝███████║
+╚██╗ ██╔╝██║   ██║   ██╔══██╗██╔══██║
+ ╚████╔╝ ██║   ██║   ██║  ██║██║  ██║
+  ╚═══╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝
+```
+
+Cooperative databases using smart contracts. [Read the white paper](https://github.com/pfrazee/vitra/blob/master/docs/whitepaper.md).
+
 **⚠️Vitra is a work in progress and is currently a proof-of-concept. Do not use it in production.⚠️**
-
-A framework for cooperatively-owned databases using smart contracts. [Read the white paper](https://github.com/pfrazee/vitra/blob/master/docs/whitepaper.md).
-
-*"Vitra" is latin for "Glass."*
 
 ## Overview
 
-Vitra could be described as a hybrid of blockchains and traditional databases. It takes inspiration from [Certificate Transparency](https://certificate.transparency.dev/) and [Layer 2 Optimistic Rollups](https://ethereum.org/en/developers/docs/scaling/layer-2-rollups/) to create a hosted smart-contract protocol called ["Execution Transparency (ET)."](https://github.com/pfrazee/vitra/blob/master/docs/whitepaper.md)
+Vitra is a hybrid of blockchains and traditional databases. It takes inspiration from [Certificate Transparency](https://certificate.transparency.dev/) and [Layer 2 Optimistic Rollups](https://ethereum.org/en/developers/docs/scaling/layer-2-rollups/) to create a hosted smart-contract protocol called ["Execution Transparency (ET)."](https://github.com/pfrazee/vitra/blob/master/docs/whitepaper.md)
 
 Vitra databases use [verifiable logs](https://transparency.dev/verifiable-data-structures) to record all transactions in a publicly-auditable structure. A contract written in Javascript then enforces the schemas and business logic of the database. By replaying the logs, users can audit the execution of the database and ensure that each participant is playing by the rules. Vitra also responds to every transaction with an inclusion proof, giving end-users an efficient solution to proving their data in the database.
 
