@@ -32,6 +32,7 @@
     "confine-sandbox": "^0.3.3",
     "core-js-pure": "^3.20.1",
     "event-iterator": "^2.0.0",
+    "frame-stream": "^3.0.0",
     "hyperbee": "^1.7.0",
     "hypercore": "^10.0.0-alpha.19",
     "jsonrpc-lite": "^2.2.0",

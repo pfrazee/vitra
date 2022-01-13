@@ -17,6 +17,10 @@ export class DataDirectory {
     return join(this.path, 'vitra.json')
   }
 
+  get socketFilePath () {
+    return join(this.path, `server.sock`)
+  }
+
   get coresPath () {
     return join(this.path, 'cores')
   }

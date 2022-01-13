@@ -6,7 +6,8 @@ import { resolve, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { DataDirectory } from './server/data-directory.js'
 import { Server } from './server/server.js'
-import { Client, createLoopbackClient } from './server/rpc.js'
+import { Client, createLoopbackClient, connectServerSocket } from './server/rpc.js'
+import * as serverProc from './server/process.js'
 import { keyToBuf } from './types.js'
 import chalk from 'chalk'
 import minimist from 'minimist'
@@ -36,6 +37,9 @@ const state: {
 main()
 async function main () {
   banner()
+  if (process.argv[2] === 'bg') {
+    return serverProc.init(process.argv[3])
+  }
   await logStatus()
   console.log('Type .help if you get lost')
   replInst = createREPL()
@@ -241,7 +245,16 @@ function createREPL (): REPLServer {
     help: 'Move the hosting process to a background process that will persist after this session.',
     async action () {
       this.clearBufferedCommand()
-      console.log('TODO')
+      await bg()
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('fg', {
+    help: 'Stop the background process, if it exists, and move the host back into this session.',
+    async action () {
+      this.clearBufferedCommand()
+      await fg()
       this.displayPrompt()
     }
   })
@@ -317,11 +330,23 @@ function setupServer () {
   }
 }
 
+async function setupSocket () {
+  if (!state.workingDir) return
+  state.client = await connectServerSocket(state.workingDir.socketFilePath)
+  replInst.context.rpc = state.client
+  console.log(`Connected to database process.`)
+}
+
 async function logStatus () {
   if (state.workingDir) {
     const info = await state.workingDir.info()
     console.log(`Current directory: ${state.workingDir.path}`)
     console.log(`Database: ${info.exists ? info.config?.pubkey.toString('hex') : '(none)'}`)
+    if (state.client && !state.server) {
+      console.log(`Database running in a separate process.`)
+    } else if (state.server) {
+      console.log(`Database running in this process and will close after this session.`)
+    }
   } else {
     console.log(`Current directory: (none)`)
   }
@@ -519,8 +544,12 @@ async function setDirectory (path: string) {
   state.workingDir = new DataDirectory(path)
   const info = await state.workingDir.info()
   if (info.exists) {
-    state.server = await Server.load(state.workingDir)
-    setupServer()
+    if (serverProc.isActive(path)) {
+      await setupSocket()
+    } else {
+      state.server = await Server.load(state.workingDir)
+      setupServer()
+    }
   }
 }
 
@@ -605,6 +634,41 @@ async function verify () {
     console.log(chalk.red(`Verification failed to execute. This error does not necessarily indicate that fraud has occurred.`))
     console.log(chalk.red(e.message || e.toString()))
   }
+}
+
+async function bg () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+  resetServer()
+  try {
+    console.log('Starting process, this may take a moment...')
+    await serverProc.spawn(state.workingDir.path)
+    console.log(chalk.green('Server moved to a background process.'))
+  } catch (e: any) {
+    console.log(chalk.red(`Failed to start the bg process.`))
+    console.log(chalk.red(e.message || e.toString()))
+    // restore the server
+    state.server = await Server.load(state.workingDir)
+    setupServer()
+    return
+  }
+  await setupSocket()
+}
+
+async function fg () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!serverProc.isActive(state.workingDir.path)) return console.log(`No background process active.`)
+  try {
+    console.log('Stopping process, this may take a moment...')
+    await serverProc.kill(state.workingDir.path)
+  } catch (e: any) {
+    console.log(chalk.red(`Failed to stop the bg process`))
+    console.log(chalk.red(e.message || e.toString()))
+    return
+  }
+  state.server = await Server.load(state.workingDir)
+  setupServer()
+  console.log(chalk.green('Server moved to this process.'))
 }
 
 async function destroy () {

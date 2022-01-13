@@ -1,4 +1,7 @@
 import util from 'util'
+import net from 'net'
+import { join } from 'path'
+import frame from 'frame-stream'
 import * as jsonrpc from 'jsonrpc-lite'
 import * as msgpackr from 'msgpackr'
 import { Server } from './server.js'
@@ -357,5 +360,47 @@ export function createLoopbackClient (server: Server): Client {
   const handleRPC = createServer(server)
   return createClient(async (req: jsonrpc.RequestObject) => {
     return msgpackr.unpack(await handleRPC(msgpackr.pack(req) as Buffer) as Buffer)
+  })
+}
+
+export function bindServerSocket (server: Server) {
+  const handleRPC = createServer(server)
+  const sockPath = server.dir.socketFilePath
+  const sockServer = net.createServer((c) => {
+    const encode = frame.encode()
+    encode.pipe(c)
+    c.pipe(frame.decode()).on('data', async (buf: Buffer) => {
+      encode.write(await handleRPC(buf))
+    })
+  });
+  sockServer.listen(sockPath, () => {
+    console.log(`Listening on ${sockPath}`)
+  })
+  return sockServer
+}
+
+export async function connectServerSocket (sockPath: string) {
+  const socket = net.connect(sockPath)
+  await new Promise((resolve, reject) => {
+    socket.on('connect', resolve)
+    socket.on('error', reject)
+  })
+
+  const pending: Map<number, Function> = new Map()
+  const encode = frame.encode()
+  encode.pipe(socket)
+  socket.pipe(frame.decode()).on('data', (buf: Buffer) => {
+    const obj = msgpackr.unpack(buf)
+    const r = pending.get(obj.id)
+    if (r) {
+      pending.delete(obj.id)
+      r(obj)
+    } else {
+      console.error('Received a response for a non-pending request', r)
+    }
+  })
+  return createClient((req: jsonrpc.RequestObject) => {
+    encode.write(msgpackr.pack(req))
+    return new Promise(r => { pending.set(Number(req.id), r) })
   })
 }
