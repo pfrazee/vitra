@@ -683,10 +683,10 @@ async function destroy () {
     return
   }
 
-  if (state.server) {
-    await state.server.close()
-    state.server = undefined
+  if (await serverProc.isActive(state.workingDir.path)) {
+    await serverProc.kill(state.workingDir.path)
   }
+  resetServer()
   await state.workingDir.destroy()
   state.confirmDestroyPath = undefined
   console.log(`Database destroyed.`)
