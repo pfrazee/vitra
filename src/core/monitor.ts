@@ -81,6 +81,7 @@ export class ContractMonitor extends Resource {
           await this.validate(entry)
         } catch (e) {
           this.emit('violation', e)
+          return
         }
       }
     })()
