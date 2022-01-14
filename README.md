@@ -21,6 +21,12 @@ Vitra databases use [verifiable logs](https://transparency.dev/verifiable-data-s
 
 Vitra's goal is to enable multiple orgs to share ownership and operation of a database. A federated network could use Vitra to share user registries, data schemas, or data indexes. Vitra ensures that each org follows the contract of the database, enabling resource limits, multi-party votes, ownership policies, and more.
 
+When is this useful?
+
+- Public/community services that need to publish very sensitive data, like user encryption-keys or software packages. Vitra gives clear external auditability of every change that occurs, much like Certificate Transparency does for PKI.
+- Decentralized organizations where a database needs to be shared among people who don't totally trust each other. The smart contract ensures that the operator of the database can't cheat the community; it effectively protects users from the owners of a service.
+- Large multi-org collaborations (think enterprises with multiple vendors) where data-sharing needs to be coordinated and consistent. Vitra protects you from incompetance in the same way it protects you from malice: the system is transparent and self-auditing.
+
 Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement its verifiable logs.
 
 ## Docs
@@ -28,133 +34,100 @@ Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement
 - [White paper](./docs/whitepaper.md)
 - [API Reference](https://pfrazee.github.io/vitra/)
 
-## Example usage
+## Example
 
-The following contract creates a shared key/value database. Multiple orgs may participate in operating the database, but one participant is designated the "admin" and given control over the other participants.
+This very simple contract maintains a counter which can only ever increment. The contract exports two calls, `get()` and `increment({amount})`, which we can use to interact with the database.
 
 ```js
-import assert from 'assert'
-import { index, isWriter } from 'contract'
+/**
+ * Counter
+ *
+ * This contract maintains a singe numeric value which can only be incremented. 
+ */
+
+import { index } from 'contract'
 
 // database api
 // =
 
-export function get ({key}) {
-  assert(typeof key === 'string')
-  if (!key.startsWith('/')) key = `/${key}`
-  return index.get(`/values${key}`)
+export async function get () {
+  const entry = await index.get(`/counter`)
+  return Number(entry?.value || 0)
 }
 
-export function list ({prefix}) {
-  assert(typeof prefix === 'string')
-  if (!prefix.startsWith('/')) prefix = `/${prefix}`
-  return index.list(`/values${prefix}`)
-}
-
-export function put ({key, value}, emit) {
-  assert(isWriter)
-  assert(typeof key === 'string')
-  assert(typeof value !== 'undefined')
-  emit({op: 'PUT', key, value})
-}
-
-export function del ({key}, emit) {
-  assert(isWriter)
-  assert(typeof key === 'string')
-  emit({op: 'DEL', key, value})
-}
-
-export function getAdmin () {
-  return index.get('/admin')
-}
-
-export function setAdmin ({pubkey}, emit) {
-  assert(isWriter)
-  assert(typeof pubkey === 'string')
-  assert(pubkey.length === 64)
-  emit({op: 'SET_ADMIN', pubkey})
-}
-
-export function addParticipant ({pubkey}, emit) {
-  assert(isWriter)
-  assert(typeof pubkey === 'string')
-  assert(pubkey.length === 64)
-  emit({op: 'ADD_PARTICIPANT', pubkey})
-}
-
-export function removeParticipant ({pubkey}, emit) {
-  assert(isWriter)
-  assert(typeof pubkey === 'string')
-  assert(pubkey.length === 64)
-  emit({op: 'REMOVE_PARTICIPANT', pubkey})
+export function increment (opts = {}, emit) {
+  const amount = typeof opts?.amount === 'number' ? opts.amount : 1
+  emit({op: 'INCREMENT', amount})
 }
 
 // transaction handler
 // =
-
+ 
 export const apply = {
-  PUT (tx, op) {
-    assert(typeof op.key === 'string')
-    assert(typeof op.value !== 'undefined')
-    if (!op.key.startsWith('/')) op.key = `/${op.key}`
-    tx.put(`/values${op.key}`, op.value)
-  },
-
-  DEL (tx, op) {
-    assert(typeof op.key === 'string')
-    if (!op.key.startsWith('/')) op.key = `/${op.key}`
-    tx.delete(`/values${op.key}`)
-  },
-
-  async SET_ADMIN (tx, op) {
-    assert(typeof op.pubkey === 'string')
-    assert(op.pubkey.length === 64)
-    const adminEntry = await state.get('/admin')
-    assert(!adminEntry || adminEntry.pubkey === ack.origin)
-    tx.put('/admin', {pubkey: op.pubkey})
-  },
-
-  async ADD_PARTICIPANT (tx, op) {
-    assert(typeof op.pubkey === 'string')
-    assert(op.pubkey.length === 64)
-    const adminEntry = await state.get('/admin')
-    assert(adminEntry?.pubkey === ack.origin)
-    tx.addOplog(op.pubkey)
-  },
-
-  async REMOVE_PARTICIPANT (tx, op) {
-    assert(typeof op.pubkey === 'string')
-    assert(op.pubkey.length === 64)
-    const adminEntry = await state.get('/admin')
-    assert(adminEntry?.pubkey === ack.origin)
-    tx.removeOplog(op.pubkey)
+  async INCREMENT (tx, op) {
+    const current = await get()
+    tx.put(`/counter`, current + op.amount)
   }
 }
 ```
 
-This contract is then instantiated as a new database using the Vitra API:
+You'll notice that transactions are handled in two phases: first publishing an operation with `emit()`, and then applying the operation with `apply.INCREMENT()`. This separation is because Vitra databases may have multiple *participants* who can generate ops, but only one *executor* who can execute the ops. When we verify a contract, we're replaying the emitted operations against the apply functions to make sure the executor has been honest.
+
+Let's create a database using our contract. We'll use the API for this readme, but the interactive CLI is generally much easier.
 
 ```js
 import { Database } from 'vitra'
 
+// Create the DB
 const db = await Database.create('./db-storage-path', {
-  contract: {source: MY_CONTRACT}
+  contract: {source: MY_COUNTER_CONTRACT}
 })
 db.swarm() // share on the hypercore network
 console.log('New database created, public key:', db.pubkey.toString('hex'))
 
-// set myself as the admin
-await db.call('setAdmin', {pubkey: db.localOplog.pubkey.toString('hex')})
+// Read the current state
+const tx1 = await db.call('get', {})
+console.log(tx.response) // => 0
 
-// set a value
-const tx = await db.call('put', {key: 'hello', value: 'world'})
-await tx.verifyInclusion() // validate the proofs for this transaction
-await tx.whenProcessed() // wait for the transaction to process
+// Increment a few times
+const tx2 = await db.call('increment', {})
+const tx3 = await db.call('increment', {amount: 2})
+const tx4 = await db.call('increment', {})
 
-// get a value
-const tx2 = await db.call('get', {key: 'hello'})
-tx.response // => 'world'
+// Wait for those increments to be processed
+await Promise.all([tx2.whenProcessed(), tx3.whenProcessed(), tx4.whenProcessed()])
+
+// Read the new state
+const tx5 = await db.call('get', {})
+console.log(tx.response) // => 4
 ```
+
+As you can see, Vitra is almost like a programmable database. We're interacting entirely with the DB using its contract's API.
+
+To verify the execution, we can use one of two methods: `verify()` or `monitor()`. The difference is whether we want to persistently verify or not; monitor will watch for new updates and verify them continuously.
+
+```js
+await db.verify() // check all current state
+
+const mon = await db.monitor() // persistently monitor transactions
+mon.on('violation', console.log)
+```
+
+Generally we try *not* to violate a contract; violations are unrecoverable and will require users to switch to an entirely new database. This is on purpose: if a contract has been violated, then your database's executor has either suffered a serious technical issue, or they're trying to defraud you and shouldn't be trusted!
+
+For this example, however, we'll force a violation to see what happens:
+
+```js
+await db.index.dangerousBatch([{type: 'put', path: '/counter', value: 1}])
+
+try {
+  await db.verify()
+} catch (e) {
+  console.log(e) // => ContractFraudProof (The executor has violated the contract)
+}
+```
+
+We just violated the contract by setting the counter back to 1. This particular violation is an unprompted change -- no operation caused this write -- but if the executor had responded to an operation with the wrong changes, or skipped over an operation, or tried to unpublish a change, it would be caught the same way.
 
 ## Future improvements
 

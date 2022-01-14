@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "docs": "typedoc --readme ./docs/readme.md --out ./generated-docs src/index.ts --excludedFunctionOrMethod \"^_\" && gh-pages -d ./generated-docs && rm -Rf ./generated-docs",
+    "docs": "typedoc --readme ./docs/api-reference-readme.md --out ./generated-docs src/index.ts --excludedFunctionOrMethod \"^_\" && gh-pages -d ./generated-docs && rm -Rf ./generated-docs",
     "test": "ava -s test/*.ts"
   },
   "ava": {
