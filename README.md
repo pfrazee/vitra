@@ -19,7 +19,7 @@ Vitra is a hybrid of blockchains and traditional databases. It takes inspiration
 
 Vitra databases use [verifiable logs](https://transparency.dev/verifiable-data-structures) to record all transactions in a publicly-auditable structure. A contract written in Javascript then enforces the schemas and business logic of the database. By replaying the logs, users can audit the execution of the database and ensure that each participant is playing by the rules. Vitra also responds to every transaction with an inclusion proof, giving end-users an efficient solution to proving their data in the database.
 
-When is this useful?
+**When is this useful?**
 
 - Public/community services that need to publish very sensitive data, like user encryption-keys or software packages. Vitra gives clear external auditability of every change that occurs, much like Certificate Transparency does for PKI.
 - Decentralized organizations where a database needs to be shared among people who don't totally trust each other. The smart contract ensures that the operator of the database can't cheat the community; it effectively protects users from the owners of a service.
