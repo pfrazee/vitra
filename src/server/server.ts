@@ -38,6 +38,15 @@ export class Server extends Resource {
     return server
   }
 
+  static async createTestSandbox (dir: DataDirectory, contractSource: string): Promise<Server> {
+    const db = await Database.createSandbox({contract: {source: contractSource}})
+    const cfg = new Config({pubkey: db.pubkey, monitor: false})
+    await dir.writeConfigFile(cfg)
+    const server = new Server(cfg, dir, db)
+    await server.open()
+    return server
+  }
+
   async _open () {
     if (this.cfg.monitor) {
       await this.startMonitor()

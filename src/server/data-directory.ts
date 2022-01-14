@@ -7,7 +7,12 @@ import EventEmitter from 'events'
 
 export interface DataDirectoryInfo {
   exists: boolean
+  testSandbox: boolean
   config?: Config
+}
+
+export interface FraudWatcher extends EventEmitter {
+  close(): void
 }
 
 export class DataDirectory {
@@ -46,12 +51,14 @@ export class DataDirectory {
     const st = await fsp.stat(this.path).catch(e => undefined)
     if (!st?.isDirectory()) {
       return {
-        exists: false
+        exists: false,
+        testSandbox: false
       }
     }
     const config = await this.readConfigFile().catch(e => undefined)
     return {
       exists: !!config,
+      testSandbox: false,
       config
     }
   }
@@ -97,7 +104,7 @@ export class DataDirectory {
     }
   }
 
-  async watchFraudsFolder () {
+  async watchFrauds (): Promise<FraudWatcher> {
     await fsp.mkdir(this.fraudsPath, {recursive: true}).catch(_ => undefined)
     return new FraudFolderWatcher(this.fraudsPath)
   }
@@ -123,7 +130,72 @@ export class DataDirectory {
   }
 }
 
-export class FraudFolderWatcher extends EventEmitter {
+export class TestingSandboxDataDirectory extends DataDirectory {
+  private txs: Map<string, Transaction> = new Map()
+  private frauds: Map<string, FraudProof> = new Map()
+  private fraudEmitter: TestSandboxFraudWatcher|undefined
+  private cfg: Config|undefined
+
+  constructor () {
+    super('/tmp/test-sandbox')
+  }
+
+  async info (): Promise<DataDirectoryInfo> {
+    return {
+      exists: true,
+      testSandbox: true
+    }
+  }
+
+  async destroy () {
+    // do nothing
+  }
+
+  async readConfigFile (): Promise<Config> {
+    return this.cfg as Config
+  }
+
+  async writeConfigFile (cfg: Config) {
+    this.cfg = cfg
+  }
+
+  async trackTransaction (tx: Transaction) {
+    this.txs.set(tx.txId, tx)
+  }
+
+  async writeTransaction (tx: Transaction): Promise<boolean> {
+    // do nothing
+    return true
+  }
+
+  async listTrackedTxIds (): Promise<string[]> {
+    return Array.from(this.txs.keys())
+  }
+
+  async readTrackedTx (txId: string): Promise<any> {
+    return this.txs.get(txId)?.toJSON()
+  }
+
+  async watchFrauds (): Promise<FraudWatcher> {
+    this.fraudEmitter = new TestSandboxFraudWatcher()
+    return this.fraudEmitter
+  }
+
+  async writeFraud (fraudId: string, fraud: FraudProof) {
+    this.frauds.set(fraudId, fraud)
+    this.fraudEmitter?.emit('frauds', Array.from(this.frauds.keys()))
+  }
+
+  async listTrackedFraudIds (): Promise<string[]> {
+    return Array.from(this.frauds.keys())
+  }
+
+  async readTrackedFraud (fraudId: string): Promise<any> {
+    return this.frauds.get(fraudId)?.toJSON()
+  }
+}
+
+class FraudFolderWatcher extends EventEmitter {
   private watchAbort: AbortController
 
   constructor (public path: string) {
@@ -152,4 +224,8 @@ export class FraudFolderWatcher extends EventEmitter {
   async close () {
     this.watchAbort.abort()
   }
+}
+
+class TestSandboxFraudWatcher extends EventEmitter {
+  close() {}
 }

@@ -4,7 +4,7 @@ import os from 'os'
 import util from 'util'
 import { resolve, join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { DataDirectory, FraudFolderWatcher } from './server/data-directory.js'
+import { DataDirectory, TestingSandboxDataDirectory, FraudWatcher } from './server/data-directory.js'
 import { Server } from './server/server.js'
 import { Client, createLoopbackClient, connectServerSocket } from './server/rpc.js'
 import * as serverProc from './server/process.js'
@@ -20,12 +20,14 @@ const pkg = JSON.parse(fs.readFileSync(join(__dirname, '..', 'package.json'), 'u
 
 let replInst: REPLServer
 const state: {
+  isTestSandbox: boolean,
   workingDir: DataDirectory|undefined,
   server: Server|undefined,
   client: Client|undefined,
-  fraudWatcher: FraudFolderWatcher|undefined,
+  fraudWatcher: FraudWatcher|undefined,
   confirmDestroyPath: string|undefined
 } = {
+  isTestSandbox: false,
   workingDir: undefined,
   server: undefined,
   client: undefined,
@@ -54,7 +56,7 @@ function createREPL (): REPLServer {
   const inst = repl.start('vitra $ ')
   inst.setupHistory(join(os.homedir(), '.vitra-history'), ()=>{})
   inst.on('exit', async () => {
-    await resetAll()
+    await reset()
     process.exit()
   })
 
@@ -71,7 +73,7 @@ function createREPL (): REPLServer {
     help: 'Set the current working path.',
     async action (path) {
       this.clearBufferedCommand()
-      await setDirectory(path)
+      await sessionUse(path)
       this.displayPrompt()
     }
   })
@@ -80,7 +82,7 @@ function createREPL (): REPLServer {
     help: 'Create a new database in the current working path.',
     async action (contractSourcePath: string) {
       this.clearBufferedCommand()
-      await init(contractSourcePath)
+      await dbInit(contractSourcePath)
       this.displayPrompt()
     }
   })
@@ -89,7 +91,7 @@ function createREPL (): REPLServer {
     help: 'Load an existing database into the current working path.',
     async action (pubkey: string) {
       this.clearBufferedCommand()
-      await load(pubkey)
+      await dbLoad(pubkey)
       this.displayPrompt()
     }
   })
@@ -202,7 +204,7 @@ function createREPL (): REPLServer {
         if (term.charAt(0) === '"' && term.charAt(term.length - 1) === '"') return term.slice(1, -1)
         return term
       })
-      await executeCall(terms[0], terms.slice(1))
+      await dbExecuteCall(terms[0], terms.slice(1))
       this.displayPrompt()
     }
   })
@@ -211,7 +213,7 @@ function createREPL (): REPLServer {
     help: 'Verify the execution of this database.',
     async action () {
       this.clearBufferedCommand()
-      await verify()
+      await dbVerify()
       this.displayPrompt()
     }
   })
@@ -220,7 +222,7 @@ function createREPL (): REPLServer {
     help: 'Persistently watch and verify the execution of this database.',
     async action () {
       this.clearBufferedCommand()
-      await monitor()
+      await dbMonitor()
       this.displayPrompt()
     }
   })
@@ -229,7 +231,7 @@ function createREPL (): REPLServer {
     help: 'Stop monitoring this database.',
     async action () {
       this.clearBufferedCommand()
-      await monitorEnd()
+      await dbMonitorEnd()
       this.displayPrompt()
     }
   })
@@ -256,7 +258,7 @@ function createREPL (): REPLServer {
     help: 'Move the hosting process to a background process that will persist after this session.',
     async action () {
       this.clearBufferedCommand()
-      await bg()
+      await sessionBg()
       this.displayPrompt()
     }
   })
@@ -265,25 +267,16 @@ function createREPL (): REPLServer {
     help: 'Stop the background process, if it exists, and move the host back into this session.',
     async action () {
       this.clearBufferedCommand()
-      await fg()
+      await sessionFg()
       this.displayPrompt()
     }
   })
 
   inst.defineCommand('test', {
-    help: 'Start a testing sandbox for the current database.',
-    async action () {
+    help: 'Start a testing sandbox.',
+    async action (scriptPath: string) {
       this.clearBufferedCommand()
-      console.log('TODO')
-      this.displayPrompt()
-    }
-  })
-
-  inst.defineCommand('testend', {
-    help: 'End the testing sandbox.',
-    async action () {
-      this.clearBufferedCommand()
-      console.log('TODO')
+      await sessionTest(scriptPath)
       this.displayPrompt()
     }
   })
@@ -292,7 +285,7 @@ function createREPL (): REPLServer {
     help: 'Destroy the database in the current working path.',
     async action () {
       this.clearBufferedCommand()
-      await destroy()
+      await dbDestroy()
       this.displayPrompt()
     }
   })
@@ -316,11 +309,7 @@ function banner () {
 `)
 }
 
-async function resetAll () {
-  await resetServer()
-}
-
-async function resetServer () {
+async function reset () {
   if (state.server) {
     console.log(`Stopping host server for ${state.server.dir.path}`)
     await state.server.close()
@@ -357,7 +346,7 @@ async function setupSocket () {
 async function setupFraudWatcher () {
   if (!state.workingDir) return
   if (state.fraudWatcher) return
-  state.fraudWatcher = await state.workingDir.watchFraudsFolder()
+  state.fraudWatcher = await state.workingDir.watchFrauds()
   state.fraudWatcher.on('frauds', (names: string[]) => {
     console.log('')
     console.log(chalk.red(`Contract violations have been detected in this database.`))
@@ -368,6 +357,196 @@ async function setupFraudWatcher () {
     console.log(chalk.red(e.message || e.toString()))
   })
 }
+
+function resolvePath (path: string): string {
+  if (!path) return path
+  if (path[0] === '~') {
+    return join(os.homedir(), path.slice(1))
+  } else {
+    return resolve(path)
+  }
+}
+
+function onServerDbError (e: any) {
+  console.log('')
+  console.log(chalk.red(`An error has occurred:`))
+  console.log(e)
+}
+
+// session management 
+// =
+
+async function sessionUse (path: string) {
+  path = resolvePath(path)
+
+  console.log(`Setting the current db to ${path}`)
+  if (state.workingDir?.path === path) {
+    return
+  }
+  await reset()
+
+  let st
+  try {
+    st = await fsp.stat(path)
+    if (st.isFile()) {
+      console.log('')
+      console.log(chalk.red(`Unable to use this directory:`))
+      console.log(chalk.red(`  ${path} is a file`))
+      return
+    }
+  } catch (e) {} // ignore
+
+  if (!st?.isDirectory()) {
+    console.log(chalk.green(`Creating directory ${path}`))
+    try {
+      await fsp.mkdir(path, {recursive: true})
+    } catch (e: any) {
+      console.log('')
+      console.log(chalk.red(`Unable to use this directory:`))
+      console.log(chalk.red(`  ${e.message}`))
+      return
+    }
+  }
+
+  state.workingDir = new DataDirectory(path)
+  state.isTestSandbox = false
+  const info = await state.workingDir.info()
+  if (info.exists) {
+    if (serverProc.isActive(path)) {
+      await setupSocket()
+    } else {
+      state.server = await Server.load(state.workingDir)
+      setupServer()
+    }
+  }
+}
+
+async function sessionTest (contractSourcePath: string) {
+  if (!contractSourcePath) return console.log(chalk.red(`You must specify the path to your sandbox's contract .js file.`))
+  let contractSource
+  try {
+    contractSource = await fsp.readFile(resolvePath(contractSourcePath), 'utf-8')
+    if (!contractSource) throw new Error('No source found')
+  } catch (e: any) {
+    console.log(chalk.red(`Failed to read the contract source at ${contractSourcePath}.`))
+    console.log(chalk.red(`  ${e.message || e.toString()}`))
+    return
+  }
+
+  await reset()
+  state.workingDir = new TestingSandboxDataDirectory()
+  state.isTestSandbox = true
+  state.server = await Server.createTestSandbox(state.workingDir, contractSource)
+  setupServer()
+}
+
+async function sessionBg () {
+  if (state.isTestSandbox) return console.log(chalk.red(`Can't move a test sandbox to background.`))
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.server) return console.log(chalk.red(`No database active.`))
+  reset()
+  try {
+    console.log('Starting process, this may take a moment...')
+    await serverProc.spawn(state.workingDir.path)
+    console.log(chalk.green('Server moved to a background process.'))
+  } catch (e: any) {
+    console.log(chalk.red(`Failed to start the bg process.`))
+    console.log(chalk.red(e.message || e.toString()))
+    // restore the server
+    state.server = await Server.load(state.workingDir)
+    setupServer()
+    return
+  }
+  await setupSocket()
+}
+
+async function sessionFg () {
+  if (state.isTestSandbox) return console.log(chalk.red(`Can't move a test sandbox to foreground.`))
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!serverProc.isActive(state.workingDir.path)) return console.log(`No background process active.`)
+  try {
+    console.log('Stopping process, this may take a moment...')
+    await serverProc.kill(state.workingDir.path)
+  } catch (e: any) {
+    console.log(chalk.red(`Failed to stop the bg process`))
+    console.log(chalk.red(e.message || e.toString()))
+    return
+  }
+  state.server = await Server.load(state.workingDir)
+  setupServer()
+  console.log(chalk.green('Server moved to this process.'))
+}
+
+// db management
+// =
+
+async function dbInit (contractSourcePath: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (state.isTestSandbox) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  const info = await state.workingDir.info()
+  if (info.exists) return console.log(chalk.red(`A database already exists at this path.`))
+
+  if (!contractSourcePath) return console.log(chalk.red(`You must specify the path to your database's contract .js file.`))
+  let contractSource
+  try {
+    contractSource = await fsp.readFile(resolvePath(contractSourcePath), 'utf-8')
+    if (!contractSource) throw new Error('No source found')
+  } catch (e: any) {
+    console.log(chalk.red(`Failed to read the contract source at ${contractSourcePath}.`))
+    console.log(chalk.red(`  ${e.message || e.toString()}`))
+    return
+  }
+
+  await reset()
+  state.server = await Server.createNew(state.workingDir, contractSource)
+  setupServer()
+}
+
+async function dbLoad (pubkey: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (state.isTestSandbox) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  const info = await state.workingDir.info()
+  if (info.exists) return console.log(chalk.red(`A database already exists at this path.`))
+  if (!pubkey) return console.log(chalk.red(`You must specify the public key of the database to load.`))
+
+  let pubkeyBuf
+  try {
+    pubkeyBuf = keyToBuf(pubkey)
+  } catch (e: any) {
+    console.log(chalk.red(`Invalid public key.`))
+    console.log(chalk.red(`  ${e.message || e.toString()}`))
+    return
+  }
+
+  await reset()
+  state.server = await Server.createFromExisting(state.workingDir, pubkeyBuf)
+  setupServer()
+}
+
+async function dbDestroy () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (state.isTestSandbox) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  const info = await state.workingDir.info()
+  if (!info.exists) return console.log(`No database exists at this path.`)
+  
+  if (state.confirmDestroyPath !== state.workingDir.path) {
+    console.log(`This will delete all data, including the keypairs, of the database at ${state.workingDir.path}`)
+    console.log(`If you're sure you want to do this, call .destroy again.`)
+    state.confirmDestroyPath = state.workingDir.path
+    return
+  }
+
+  if (await serverProc.isActive(state.workingDir.path)) {
+    await serverProc.kill(state.workingDir.path)
+  }
+  reset()
+  await state.workingDir.destroy()
+  state.confirmDestroyPath = undefined
+  console.log(`Database destroyed.`)
+}
+
+// read/log commands
+// =
 
 async function logStatus () {
   if (state.workingDir) {
@@ -381,6 +560,9 @@ async function logStatus () {
     }
     if (info.config?.monitor) {
       console.log(chalk.green(`Monitor active.`))
+    }
+    if (info.testSandbox) {
+      console.log(chalk.green(`Testing sandbox. All data and effects are temporary and cannot be shared on the network.`))
     }
   } else {
     console.log(`Current directory: (none)`)
@@ -470,6 +652,9 @@ async function logSourceMethods () {
   }
 }
 
+// transactions
+// =
+
 async function logTxList () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
@@ -515,6 +700,9 @@ async function verifyTx (txId: string) {
   }
 }
 
+// frauds
+// =
+
 async function logFraudList () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
@@ -540,96 +728,10 @@ async function logFraud (fraudId: string) {
   }
 }
 
-async function setDirectory (path: string) {
-  if (path[0] === '~') {
-    path = join(os.homedir(), path.slice(1))
-  } else {
-    path = resolve(path)
-  }
+// db calls
+// =
 
-  console.log(`Setting the current db to ${path}`)
-  if (state.workingDir?.path === path) {
-    return
-  }
-  await resetServer()
-
-  let st
-  try {
-    st = await fsp.stat(path)
-    if (st.isFile()) {
-      console.log('')
-      console.log(chalk.red(`Unable to use this directory:`))
-      console.log(chalk.red(`  ${path} is a file`))
-      return
-    }
-  } catch (e) {} // ignore
-
-  if (!st?.isDirectory()) {
-    console.log(chalk.green(`Creating directory ${path}`))
-    try {
-      await fsp.mkdir(path, {recursive: true})
-    } catch (e: any) {
-      console.log('')
-      console.log(chalk.red(`Unable to use this directory:`))
-      console.log(chalk.red(`  ${e.message}`))
-      return
-    }
-  }
-
-  state.workingDir = new DataDirectory(path)
-  const info = await state.workingDir.info()
-  if (info.exists) {
-    if (serverProc.isActive(path)) {
-      await setupSocket()
-    } else {
-      state.server = await Server.load(state.workingDir)
-      setupServer()
-    }
-  }
-}
-
-async function init (contractSourcePath: string) {
-  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  const info = await state.workingDir.info()
-  if (info.exists) return console.log(chalk.red(`A database already exists at this path.`))
-
-  if (!contractSourcePath) return console.log(chalk.red(`You must specify the path to your database's contract .js file.`))
-  let contractSource
-  try {
-    contractSource = await fsp.readFile(contractSourcePath, 'utf-8')
-    if (!contractSource) throw new Error('No source found')
-  } catch (e: any) {
-    console.log(chalk.red(`Failed to read the contract source at ${contractSourcePath}.`))
-    console.log(chalk.red(`  ${e.message || e.toString()}`))
-    return
-  }
-
-  await resetServer()
-  state.server = await Server.createNew(state.workingDir, contractSource)
-  setupServer()
-}
-
-async function load (pubkey: string) {
-  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  const info = await state.workingDir.info()
-  if (info.exists) return console.log(chalk.red(`A database already exists at this path.`))
-  if (!pubkey) return console.log(chalk.red(`You must specify the public key of the database to load.`))
-
-  let pubkeyBuf
-  try {
-    pubkeyBuf = keyToBuf(pubkey)
-  } catch (e: any) {
-    console.log(chalk.red(`Invalid public key.`))
-    console.log(chalk.red(`  ${e.message || e.toString()}`))
-    return
-  }
-
-  await resetServer()
-  state.server = await Server.createFromExisting(state.workingDir, pubkeyBuf)
-  setupServer()
-}
-
-async function executeCall (method: string, args: string[]) {
+async function dbExecuteCall (method: string, args: string[]) {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
   if (!method) return console.log(chalk.red(`Must specify the method to call.`))
@@ -652,7 +754,10 @@ async function executeCall (method: string, args: string[]) {
   }
 }
 
-async function verify () {
+// db verification
+// =
+
+async function dbVerify () {
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
   try {
@@ -671,7 +776,8 @@ async function verify () {
   }
 }
 
-async function monitor () {
+async function dbMonitor () {
+  if (state.isTestSandbox) return console.log(chalk.red(`Can't run the monitor in the test environment. Call .verify instead.`))
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
   try {
@@ -682,7 +788,8 @@ async function monitor () {
   }
 }
 
-async function monitorEnd () {
+async function dbMonitorEnd () {
+  if (state.isTestSandbox) return console.log(chalk.red(`Can't run the monitor in the test environment. Call .verify instead.`))
   if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
   if (!state.client) return console.log(chalk.red(`No database active.`))
   try {
@@ -691,66 +798,4 @@ async function monitorEnd () {
   } catch (e: any) {
     console.log(chalk.red(e.message || e.toString()))
   }
-}
-
-async function bg () {
-  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!state.server) return console.log(chalk.red(`No database active.`))
-  resetServer()
-  try {
-    console.log('Starting process, this may take a moment...')
-    await serverProc.spawn(state.workingDir.path)
-    console.log(chalk.green('Server moved to a background process.'))
-  } catch (e: any) {
-    console.log(chalk.red(`Failed to start the bg process.`))
-    console.log(chalk.red(e.message || e.toString()))
-    // restore the server
-    state.server = await Server.load(state.workingDir)
-    setupServer()
-    return
-  }
-  await setupSocket()
-}
-
-async function fg () {
-  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  if (!serverProc.isActive(state.workingDir.path)) return console.log(`No background process active.`)
-  try {
-    console.log('Stopping process, this may take a moment...')
-    await serverProc.kill(state.workingDir.path)
-  } catch (e: any) {
-    console.log(chalk.red(`Failed to stop the bg process`))
-    console.log(chalk.red(e.message || e.toString()))
-    return
-  }
-  state.server = await Server.load(state.workingDir)
-  setupServer()
-  console.log(chalk.green('Server moved to this process.'))
-}
-
-async function destroy () {
-  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
-  const info = await state.workingDir.info()
-  if (!info.exists) return console.log(`No database exists at this path.`)
-  
-  if (state.confirmDestroyPath !== state.workingDir.path) {
-    console.log(`This will delete all data, including the keypairs, of the database at ${state.workingDir.path}`)
-    console.log(`If you're sure you want to do this, call .destroy again.`)
-    state.confirmDestroyPath = state.workingDir.path
-    return
-  }
-
-  if (await serverProc.isActive(state.workingDir.path)) {
-    await serverProc.kill(state.workingDir.path)
-  }
-  resetServer()
-  await state.workingDir.destroy()
-  state.confirmDestroyPath = undefined
-  console.log(`Database destroyed.`)
-}
-
-function onServerDbError (e: any) {
-  console.log('')
-  console.log(chalk.red(`An error has occurred:`))
-  console.log(e)
 }
