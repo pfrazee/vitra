@@ -19,8 +19,6 @@ Vitra is a hybrid of blockchains and traditional databases. It takes inspiration
 
 Vitra databases use [verifiable logs](https://transparency.dev/verifiable-data-structures) to record all transactions in a publicly-auditable structure. A contract written in Javascript then enforces the schemas and business logic of the database. By replaying the logs, users can audit the execution of the database and ensure that each participant is playing by the rules. Vitra also responds to every transaction with an inclusion proof, giving end-users an efficient solution to proving their data in the database.
 
-Vitra's goal is to enable multiple orgs to share ownership and operation of a database. A federated network could use Vitra to share user registries, data schemas, or data indexes. Vitra ensures that each org follows the contract of the database, enabling resource limits, multi-party votes, ownership policies, and more.
-
 When is this useful?
 
 - Public/community services that need to publish very sensitive data, like user encryption-keys or software packages. Vitra gives clear external auditability of every change that occurs, much like Certificate Transparency does for PKI.
@@ -80,7 +78,7 @@ import { Database } from 'vitra'
 
 // Create the DB
 const db = await Database.create('./db-storage-path', {
-  contract: {source: MY_COUNTER_CONTRACT}
+  contract: {source: COUNTER_CONTRACT}
 })
 db.swarm() // share on the hypercore network
 console.log('New database created, public key:', db.pubkey.toString('hex'))
@@ -102,7 +100,7 @@ const tx5 = await db.call('get', {})
 console.log(tx.response) // => 4
 ```
 
-As you can see, Vitra is almost like a programmable database. We're interacting entirely with the DB using its contract's API.
+As you can see, Vitra is a programmable database. We're interacting with the DB using the contract's API.
 
 To verify the execution, we can use one of two methods: `verify()` or `monitor()`. The difference is whether we want to persistently verify or not; monitor will watch for new updates and verify them continuously.
 
@@ -128,6 +126,10 @@ try {
 ```
 
 We just violated the contract by setting the counter back to 1. This particular violation is an unprompted change -- no operation caused this write -- but if the executor had responded to an operation with the wrong changes, or skipped over an operation, or tried to unpublish a change, it would be caught the same way.
+
+## License
+
+Vitra is copyright 2022 Blue Link Labs. We're currently deciding how to license Vitra and have not set a FOSS license yet, though we intend to (sorry!). We're currently considering a less liberal license such as AGPL.
 
 ## Future improvements
 
