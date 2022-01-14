@@ -209,6 +209,24 @@ function createREPL (): REPLServer {
     }
   })
 
+  inst.defineCommand('mkoplog', {
+    help: 'Create a new oplog for this database.',
+    async action () {
+      this.clearBufferedCommand()
+      await dbAddOplog()
+      this.displayPrompt()
+    }
+  })
+
+  inst.defineCommand('deloplog', {
+    help: 'Delete an oplog on this database. (Must not be an active participant.)',
+    async action (pubkey: string) {
+      this.clearBufferedCommand()
+      await dbDelOplog(pubkey)
+      this.displayPrompt()
+    }
+  })
+
   inst.defineCommand('verify', {
     help: 'Verify the execution of this database.',
     async action () {
@@ -545,6 +563,41 @@ async function dbDestroy () {
   console.log(`Database destroyed.`)
 }
 
+async function dbAddOplog () {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  
+  try {
+    const res = await state.client.dbCreateOplog()
+    console.log(`Created new oplog ${res.pubkey}`)
+    console.log(`This oplog will be in a detached state until added by the contract. Call .info to see all detached oplogs.`)
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
+async function dbDelOplog (pubkey: string) {
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  if (!pubkey) return console.log(chalk.red(`You must specify the public key of the oplog to delete.`))
+
+  let pubkeyBuf
+  try {
+    pubkeyBuf = keyToBuf(pubkey)
+  } catch (e: any) {
+    console.log(chalk.red(`Invalid public key.`))
+    console.log(chalk.red(`  ${e.message || e.toString()}`))
+    return
+  }
+  
+  try {
+    await state.client.dbDeleteOplog({pubkey})
+    console.log(`Deleted oplog ${pubkey}.`)
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
 // read/log commands
 // =
 
@@ -579,6 +632,12 @@ async function logInfo () {
     console.log(chalk.bold(`${'Log'.padEnd(labelLength)} | ${'Pubkey'.padEnd(64)} | Length | Owner?`))
     for (const log of info.logs) {
       console.log(`${log.label.padEnd(labelLength)} | ${log.pubkey} | ${String(log.length).padEnd(6)} | ${log.writable ? chalk.green('Yes') : 'No'}`)
+    }
+    if (info.detachedOplogPubkeys.length) {
+      console.log(chalk.bold(`Detached oplogs:`))
+      for (const pubkey of info.detachedOplogPubkeys) {
+        console.log(pubkey)
+      }
     }
   } catch (e: any) {
     console.log(chalk.red(e.message || e.toString()))

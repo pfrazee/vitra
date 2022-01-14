@@ -8,7 +8,7 @@ import { Transaction } from '../core/transactions.js'
 import { Log } from '../core/log.js'
 import { FraudProof } from '../core/fraud-proofs.js'
 import { listExportedMethods } from '../util/parser.js'
-import { keyToBuf } from '../types.js'
+import { keyToBuf, keyToStr } from '../types.js'
 
 interface LogInfo {
   label: string
@@ -19,6 +19,7 @@ interface LogInfo {
 
 interface GetInfoResponse {
   logs: LogInfo[]
+  detachedOplogPubkeys: string[]
   numPeers: number
 }
 
@@ -126,6 +127,14 @@ interface DbVerifyResponse {
   fraudDescription?: string
 }
 
+interface DbCreateOplogResponse {
+  pubkey: string
+}
+
+interface DbDeleteOplogParams {
+  pubkey: string
+}
+
 export interface Client {
   getInfo (): Promise<GetInfoResponse>
   getSource (): Promise<GetSourceResponse>
@@ -144,6 +153,8 @@ export interface Client {
   dbSync (params: DbSyncParams): Promise<void>
   dbStartMonitor (): Promise<void>
   dbStopMonitor (): Promise<void>
+  dbCreateOplog (): Promise<DbCreateOplogResponse>
+  dbDeleteOplog (params: DbDeleteOplogParams): Promise<void>
 }
 
 function createClient (handler: Function): Client {
@@ -225,6 +236,14 @@ function createClient (handler: Function): Client {
 
     dbStopMonitor (): Promise<void> {
       return request('dbStopMonitor')
+    },
+
+    dbCreateOplog (): Promise<DbCreateOplogResponse> {
+      return request('dbCreateOplog')
+    },
+
+    dbDeleteOplog (params: DbDeleteOplogParams): Promise<void> {
+      return request('dbDeleteOplog', params)
     }
   }
 }
@@ -240,7 +259,13 @@ function createServer (server: Server) {
       for (let i = 0; i < server.db.oplogs.length; i++) {
         capture(`Oplog ${i}`, server.db.oplogs.at(i) as Log)
       }
-      return {numPeers: server.db.numPeers, logs}
+      const detachedOplogPubkeys = []
+      for (const pubkey of server.cfg.createdOplogPubkeys) {
+        if (!server.db.isOplogParticipant(pubkey)) {
+          detachedOplogPubkeys.push(keyToStr(pubkey))
+        }
+      }
+      return {numPeers: server.db.numPeers, detachedOplogPubkeys, logs}
     },
 
     async getSource (params: any) {
@@ -384,6 +409,14 @@ function createServer (server: Server) {
 
     async dbStopMonitor (): Promise<void> {
       await server.stopMonitor()
+    },
+
+    async dbCreateOplog (): Promise<DbCreateOplogResponse> {
+      return await server.createOplog()
+    },
+
+    async dbDeleteOplog (params: DbDeleteOplogParams): Promise<void> {
+      return await server.deleteOplog(params)
     }
   }
 

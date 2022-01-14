@@ -1,6 +1,7 @@
 import { Resource } from '../util/resource.js'
 import { ResourcesManager } from '../util/resources-manager.js'
 import { UsageManager } from '../util/usage-manager.js'
+import { timeout } from '../util/async.js'
 import * as assert from 'assert'
 import Hyperswarm from 'hyperswarm'
 import {
@@ -143,7 +144,7 @@ export class Database extends Resource {
     const indexCore = await _storage.getHypercore(pubkey)
     const index = new IndexLog(indexCore)
     const db = new Database(_storage, index) 
-    const oplogs = await db.index.listOplogs()
+    const oplogs = (await timeout(5e3, db.index.listOplogs()).catch(e => [])) as {pubkey: Key}[]
     await Promise.all(oplogs.map(async (oplog) => {
       db.oplogs.add(new OpLog(await _storage.getHypercore(oplog.pubkey)))
     }))
