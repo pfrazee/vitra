@@ -19,6 +19,7 @@ interface LogInfo {
 
 interface GetInfoResponse {
   logs: LogInfo[]
+  numPeers: number
 }
 
 interface GetSourceResponse {
@@ -115,6 +116,10 @@ interface DbCallResponse {
   response: any
 }
 
+interface DbSyncParams {
+  fullHistory?: boolean
+}
+
 interface DbVerifyResponse {
   success: boolean
   fraudId?: string
@@ -136,6 +141,7 @@ export interface Client {
   fraudGet (params: FraudGetParams): Promise<any>
   dbCall (params: DbCallParams): Promise<DbCallResponse>
   dbVerify (): Promise<DbVerifyResponse>
+  dbSync (params: DbSyncParams): Promise<void>
   dbStartMonitor (): Promise<void>
   dbStopMonitor (): Promise<void>
 }
@@ -208,6 +214,10 @@ function createClient (handler: Function): Client {
     dbVerify (): Promise<DbVerifyResponse> {
       return request('dbVerify')
     },
+  
+    dbSync (params: DbSyncParams): Promise<void> {
+      return request('dbSync', params)
+    },
 
     dbStartMonitor (): Promise<void> {
       return request('dbStartMonitor')
@@ -230,7 +240,7 @@ function createServer (server: Server) {
       for (let i = 0; i < server.db.oplogs.length; i++) {
         capture(`Oplog ${i}`, server.db.oplogs.at(i) as Log)
       }
-      return {logs}
+      return {numPeers: server.db.numPeers, logs}
     },
 
     async getSource (params: any) {
@@ -357,6 +367,14 @@ function createServer (server: Server) {
           }
         }
         throw e
+      }
+    },
+  
+    async dbSync (params: DbSyncParams): Promise<void> {
+      if (params.fullHistory) {
+        await server.db.syncFullHistory()
+      } else {
+        await server.db.syncLatest()
       }
     },
 

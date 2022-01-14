@@ -2,11 +2,11 @@ import { Resource } from '../util/resource.js'
 import { ResourcesManager } from '../util/resources-manager.js'
 import { UsageManager } from '../util/usage-manager.js'
 import * as assert from 'assert'
+import Hyperswarm from 'hyperswarm'
 import {
   DatabaseOpts,
   DatabaseCreateOpts,
   SandboxDatabaseCreateOpts,
-  ContractCode,
   ExecutorBehavior,
   IndexBatchEntry,
   OperationResults,
@@ -30,6 +30,7 @@ import { Operation, Transaction } from './transactions.js'
 import { IndexLog, OpLog } from './log.js'
 import { ContractExecutor } from './executor.js'
 import { TestContractExecutor } from './testing/executor.js'
+import { getOrCreateLocalDHT } from './testing/local-dht.js'
 import { ContractMonitor } from './monitor.js'
 import { VM } from './vm.js'
 import lock from '../util/lock.js'
@@ -41,7 +42,8 @@ export class Database extends Resource {
   vm: VM|undefined
   vmManager = new UsageManager()
   executor: ContractExecutor|undefined
-
+  
+  private _swarm: Hyperswarm|undefined = undefined
   private _lockPrefix = ''
   private _localOplogOverride: OpLog|undefined
 
@@ -50,6 +52,13 @@ export class Database extends Resource {
     this.storage = storage
     this.index = index
     this._lockPrefix = keyToStr(this.pubkey)
+
+    this.oplogs.on('added', oplog => {
+      if (this._swarm) this._swarm.join(oplog.core.discoveryKey)
+    })
+    this.oplogs.on('removed', oplog => {
+      if (this._swarm) this._swarm.leave(oplog.core.discoveryKey)
+    })
   }
 
   get pubkey (): Buffer {
@@ -82,6 +91,14 @@ export class Database extends Resource {
     return this.oplogs.find(l => l.pubkey.equals(pubkey))
   }
 
+  get isSwarming (): boolean {
+    return !!this._swarm
+  }
+
+  get numPeers (): number {
+    return this._swarm?.peers.size || 0
+  }
+
   lock (name: string): Promise<() => void> {
     return lock(`${this._lockPrefix}:${name}`)
   }
@@ -107,6 +124,7 @@ export class Database extends Resource {
     assert.ok(storage instanceof Storage, 'storage is required')
     assert.equal(typeof opts?.contract?.source, 'string', 'opts.code.source is required')
 
+    await storage.open()
     const index = await IndexLog.create(storage)
     const db = new Database(storage, index)
     db.oplogs.add(await OpLog.create(storage)) // executor oplog
@@ -121,6 +139,7 @@ export class Database extends Resource {
     assert.ok(_storage instanceof Storage, '_storage is required')
     pubkey = keyToBuf(pubkey) // keyToBuf() will validate the key
 
+    await _storage.open()
     const indexCore = await _storage.getHypercore(pubkey)
     const index = new IndexLog(indexCore)
     const db = new Database(_storage, index) 
@@ -137,6 +156,7 @@ export class Database extends Resource {
     assert.ok(opts.from || opts.contract?.source, 'Must specify {from} or {contract}')
 
     const storage = new StorageInMemory()
+    await storage.open()
     
     const index = await IndexLog.create(storage)
     if (opts.from) {
@@ -199,17 +219,51 @@ export class Database extends Resource {
       this.index.close(),
       this.oplogs.removeAll()
     ])
+    await this._swarm?.destroy()
+    await this.storage.close()
   }
 
   // networking
   // =
 
-  swarm () {
-    throw new Error('TODO')
+  async swarm (opts: {local: boolean} = {local: false}) {
+    if (this._swarm) return
+    this._swarm = opts.local ? new Hyperswarm(await getOrCreateLocalDHT()) : new Hyperswarm()
+    this._swarm.on('connection', (connection: any) => {
+      this.storage.corestore.replicate(connection)
+    })
+    this._swarm.join(this.index.core.discoveryKey as Buffer)
+    for (const oplog of this.oplogs) this._swarm.join(oplog.core.discoveryKey as Buffer)
   }
   
-  unswarm () {
-    throw new Error('TODO')
+  async unswarm () {
+    if (!this._swarm) return
+    await this._swarm.destroy()
+    this._swarm = undefined
+  }
+  
+  async syncLatest () {
+    if (!this._swarm) throw new Error(`Can't sync latest: not connected to the swarm`)
+    await this._swarm?.flush()
+    await Promise.all([
+      this.index.syncLatest(),
+      ...this.oplogs.map(oplog => oplog.syncLatest())
+    ])
+  }
+
+  async syncFullHistory () {
+    if (!this._swarm) throw new Error(`Can't sync history: not connected to the swarm`)
+    await this._swarm?.flush()
+    await Promise.all([
+      this.index.syncFullHistory(),
+      ...this.oplogs.map(oplog => oplog.syncFullHistory())
+    ])
+  }
+
+  async whenConnected () {
+    do {
+      await this.syncLatest()
+    } while (this._swarm?.peers.size === 0)
   }
 
   // transactions

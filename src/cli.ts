@@ -240,7 +240,7 @@ function createREPL (): REPLServer {
     help: 'Sync the latest state of the current database.',
     async action () {
       this.clearBufferedCommand()
-      console.log('TODO')
+      await dbSync(false)
       this.displayPrompt()
     }
   })
@@ -249,7 +249,7 @@ function createREPL (): REPLServer {
     help: 'Sync the full history of the current database.',
     async action () {
       this.clearBufferedCommand()
-      console.log('TODO')
+      await dbSync(true)
       this.displayPrompt()
     }
   })
@@ -574,6 +574,7 @@ async function logInfo () {
   if (!state.client) return console.log(chalk.red(`No database active.`))
   try {
     const info = await state.client.getInfo()
+    console.log(`${chalk.bold('Network active:')} ${info.numPeers} peers connected.`)
     const labelLength = info.logs.reduce((acc: number, log: any) => Math.max(acc, log.label.length), 0)
     console.log(chalk.bold(`${'Log'.padEnd(labelLength)} | ${'Pubkey'.padEnd(64)} | Length | Owner?`))
     for (const log of info.logs) {
@@ -797,5 +798,25 @@ async function dbMonitorEnd () {
     console.log(`Monitor stopped.`)
   } catch (e: any) {
     console.log(chalk.red(e.message || e.toString()))
+  }
+}
+
+async function dbSync (fullHistory: boolean) {
+  if (state.isTestSandbox) return console.log(chalk.red(`Can't run the monitor in the test environment. Call .verify instead.`))
+  if (!state.workingDir) return console.log(chalk.red(`No working directory set. Call .use first.`))
+  if (!state.client) return console.log(chalk.red(`No database active.`))
+  let i = setInterval(async () => {
+    const info = await state.client?.getInfo()
+    const numPeers = info?.numPeers || 0
+    console.log(`Syncing, ${numPeers} peers connected`)
+  }, 1e3)
+  try {
+    console.log('Starting sync (this may take a moment).')
+    await state.client.dbSync({fullHistory})
+    console.log(`Sync complete.`)
+  } catch (e: any) {
+    console.log(chalk.red(e.message || e.toString()))
+  } finally {
+    clearInterval(i)
   }
 }

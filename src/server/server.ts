@@ -14,6 +14,7 @@ export class Server extends Resource {
 
   static async createNew (dir: DataDirectory, contractSource: string): Promise<Server> {
     const db = await Database.create(dir.coresPath, {contract: {source: contractSource}})
+    await db.swarm()
     const cfg = new Config({pubkey: db.pubkey, monitor: false})
     await dir.writeConfigFile(cfg)
     const server = new Server(cfg, dir, db)
@@ -23,6 +24,7 @@ export class Server extends Resource {
 
   static async createFromExisting (dir: DataDirectory, pubkey: Buffer): Promise<Server> {
     const db = await Database.load(dir.coresPath, pubkey)
+    await db.swarm()
     const cfg = new Config({pubkey: db.pubkey, monitor: false})
     await dir.writeConfigFile(cfg)
     const server = new Server(cfg, dir, db)
@@ -33,6 +35,7 @@ export class Server extends Resource {
   static async load (dir: DataDirectory): Promise<Server> {
     const cfg = await dir.readConfigFile()
     const db = await Database.load(dir.coresPath, cfg.pubkey)
+    await db.swarm()
     const server = new Server(cfg, dir, db)
     await server.open()
     return server

@@ -50,6 +50,7 @@ export class Log extends EventEmitter {
     return this.constructor.name + '(\n' +
       indent + '  key: ' + opts.stylize(keyToStr(this.pubkey), 'string') + '\n' +
       indent + '  opened: ' + opts.stylize(this.core.opened, 'boolean') + '\n' +
+      indent + '  length: ' + opts.stylize(this.core.length, 'number') + '\n' +
       indent + ')'
   }
 
@@ -85,7 +86,12 @@ export class Log extends EventEmitter {
   }
 
   async syncLatest () {
-    throw new Error('TODO')
+    await this.core.update()
+  }
+
+  async syncFullHistory () {
+    await this.core.update()
+    await this.core.download({start: 0, end: this.core.length - 1})
   }
 
   async generateBlockInclusionProof (seq: number): Promise<BlockInclusionProof> {

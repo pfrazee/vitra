@@ -144,9 +144,10 @@ ava('fraud proof: oplog removed operation after publishing without forking', asy
   
   // mutate the log without using truncate() by replacing it with a log from separate, unsynced storage
   const storage2 = new StorageInMemory()
-  // @ts-ignore keyPairs will exist on contract.storage
-  storage2.keyPairs = db.storage.keyPairs
   const newCore = await storage2.getHypercore(db.localOplog?.pubkey as Buffer)
+  // @ts-ignore override sign
+  newCore.sign = db.oplogs.at(0).core.sign
+  newCore.writable = true
   // @ts-ignore at(0) will exist
   db.oplogs.at(0).core = newCore
   await db.call('put', {path: '/foo', value: 'hello world!'})
