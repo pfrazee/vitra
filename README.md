@@ -29,11 +29,13 @@ Vitra databases use [verifiable logs](https://transparency.dev/verifiable-data-s
 
 Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement its verifiable logs.
 
-## Docs
+## Tutorial video
+
+[Watch the tutorial video here.](https://www.youtube.com/watch?v=6lS7FMGzMZk)
 
 [![Vitra tutorial video](https://img.youtube.com/vi/6lS7FMGzMZk/0.jpg)](https://www.youtube.com/watch?v=6lS7FMGzMZk)
 
-[☝️ Tutorial video ☝️](https://www.youtube.com/watch?v=6lS7FMGzMZk)
+## Docs
 
 - [White paper](./docs/whitepaper.md)
 - [Command-line docs](./docs/cli.md)

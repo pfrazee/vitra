@@ -8,11 +8,13 @@ npm i -g vitra
 
 Then start vitra by simply calling the `vitra` command.
 
-## Overview
+## Tutorial video
+
+[Watch the tutorial video here.](https://www.youtube.com/watch?v=6lS7FMGzMZk)
 
 [![Vitra tutorial video](https://img.youtube.com/vi/6lS7FMGzMZk/0.jpg)](https://www.youtube.com/watch?v=6lS7FMGzMZk)
 
-[☝️ Tutorial video ☝️](https://www.youtube.com/watch?v=6lS7FMGzMZk)
+## Overview
 
 The interactive CLI is a REPL session, meaning you can run Javascript inside it. However: the majority of the time you'll use the builtin commands, all of which start with a `.`.
 
