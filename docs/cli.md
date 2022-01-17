@@ -12,6 +12,8 @@ Then start vitra by simply calling the `vitra` command.
 
 [![Vitra tutorial video](https://img.youtube.com/vi/6lS7FMGzMZk/0.jpg)](https://www.youtube.com/watch?v=6lS7FMGzMZk)
 
+[Tutorial video](https://www.youtube.com/watch?v=6lS7FMGzMZk)
+
 The interactive CLI is a REPL session, meaning you can run Javascript inside it. However: the majority of the time you'll use the builtin commands, all of which start with a `.`.
 
 During the CLI session, you have a current working directory. This is the directory in which your database's data is stored. You can check the current directory and database with the `.status` command. You can set the current directory with the `.use {path}` command.

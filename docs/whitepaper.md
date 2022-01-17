@@ -1,5 +1,7 @@
 # Low-Trust Networking through Secure, Public Logs
 
+*Draft 2. Not yet final.*
+
 Decentralized networks require open participation. Hostile actors must be assumed in such an environment. To counteract their effects, a decentralized network must be designed defensively.
 
 A common property now used by decentralized networks is "trustlessness". A trustless network constrains the activity of each participant such that good actors are able to transact while bad actors are either quickly detected and stopped or are prevented from executing an attack.

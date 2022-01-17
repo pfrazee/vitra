@@ -32,6 +32,7 @@ Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement
 ## Docs
 
 [![Vitra tutorial video](https://img.youtube.com/vi/6lS7FMGzMZk/0.jpg)](https://www.youtube.com/watch?v=6lS7FMGzMZk)
+[Tutorial video](https://www.youtube.com/watch?v=6lS7FMGzMZk)
 
 - [White paper](./docs/whitepaper.md)
 - [Command-line docs](./docs/cli.md)
