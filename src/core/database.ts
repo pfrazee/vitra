@@ -12,6 +12,7 @@ import {
   IndexBatchEntry,
   OperationResults,
   ApplyActions,
+  IndexHistoryEntry,
   Key,
   keyToStr,
   keyToBuf
@@ -47,6 +48,7 @@ export class Database extends Resource {
   private _swarm: Hyperswarm|undefined = undefined
   private _lockPrefix = ''
   private _localOplogOverride: OpLog|undefined
+  private _indexWatcher: AsyncGenerator<IndexHistoryEntry>|undefined
 
   constructor (storage: Storage, index: IndexLog) {
     super()
@@ -199,6 +201,8 @@ export class Database extends Resource {
         this.executor = new ContractExecutor(this)
         await this.executor.open()
       }
+    } else {
+      this._watchOplogs()
     }
     if (this.executor) {
       // start the VM next tick so that error handlers can be registered
@@ -216,12 +220,33 @@ export class Database extends Resource {
   async _close () {
     this.executor?.close()
     this.vm?.close()
+    this._indexWatcher?.return(undefined)
     await Promise.all([
       this.index.close(),
       this.oplogs.removeAll()
     ])
     await this._swarm?.destroy()
     await this.storage.close()
+  }
+
+  private async _watchOplogs () {
+    this._indexWatcher = this.index.history({gt: this.index.length, live: true})
+    for await (const entry of this._indexWatcher) {
+      if (entry.path.startsWith(PARTICIPANT_PATH_PREFIX)) {
+        const pubkey = (entry.value as InputSchema).pubkey
+        const active = (entry.value as InputSchema).active
+        if (entry.type === 'put' && active) {
+          if (!this.oplogs.has(o => o.pubkey.equals(pubkey))) {
+            this.oplogs.add(new OpLog(await this.storage.getHypercore(pubkey)))
+          }
+        } else if (entry.type === 'del' || (entry.type === 'put' && !active)) {
+          const i = this.oplogs.findIndex(o => o.pubkey.equals(pubkey))
+          if (i !== -1) {
+            this.oplogs.removeAt(i)
+          }
+        }
+      }
+    }
   }
 
   // networking
