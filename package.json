@@ -43,6 +43,7 @@
     "minimist": "^1.2.5",
     "msgpackr": "^1.5.2",
     "pump": "^3.0.0",
+    "random-access-file": "^2.2.0",
     "random-access-memory": "^4.0.0",
     "stream-to-it": "^0.2.4",
     "streamx": "^2.12.0",

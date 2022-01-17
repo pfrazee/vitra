@@ -2,10 +2,11 @@ import path from 'path'
 import { Resource } from '../util/resource.js'
 import Hypercore from 'hypercore'
 import Corestore from 'corestore'
-import crypto, { KeyPair } from 'hypercore-crypto'
+// @ts-ignore types not available -prf
+import raf from 'random-access-file'
 // @ts-ignore types not available -prf
 import ram from 'random-access-memory'
-import { Key, keyToStr, keyToBuf } from '../types.js'
+import { Key } from '../types.js'
 
 interface StoredKeyPair {
   publicKey: Buffer
@@ -21,7 +22,10 @@ export class Storage extends Resource {
   }
 
   protected _getCorestoreOpts (): any {
-    return this.basePath
+    // return this.basePath
+    return (name: string) => {
+      return raf(name, { directory: this.basePath })
+    }
   }
 
   async _open () {
