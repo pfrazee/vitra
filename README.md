@@ -11,7 +11,9 @@
 
 Cooperative databases using smart contracts. [Read the white paper](https://github.com/pfrazee/vitra/blob/master/docs/whitepaper.md).
 
-**⚠️Vitra is a work in progress and is currently a proof-of-concept. Do not use it in production.⚠️**
+## Introduction
+
+Vitra is a research project for exploring the limits of smart contracts *without* blockchains -- specifically, without using decentralized consensus algorithms like Proof-of-Work or Proof-of-Stake. Its purpose is research and education. Contributors are welcome, but the software is not stable and should not be used in production.
 
 ## Overview
 
@@ -29,8 +31,16 @@ Vitra uses the [Hypercore Protocol](https://hypercore-protocol.org) to implement
 
 ## Docs
 
+[![Vitra tutorial video](https://img.youtube.com/vi/6lS7FMGzMZk/0.jpg)](https://www.youtube.com/watch?v=6lS7FMGzMZk)
+
 - [White paper](./docs/whitepaper.md)
+- [Command-line docs](./docs/cli.md)
+- [Smart contract API docs](./docs/contract-apis.md)
 - [API Reference](https://pfrazee.github.io/vitra/)
+- [Example contracts](./examples/)
+- Technical docs
+  - [Implementation specs](./docs/implementation.md)
+  - [VM Runtime](./docs/vm-runtime.md)
 
 ## Example
 
