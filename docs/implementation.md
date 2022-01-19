@@ -1,20 +1,20 @@
 # Implementation specs
 
 - Contracts are strongly isolated in virtual machines and do not share resources
-- Every contract is bound to a hypercore (the output log)
-- Every contract has a public key (the output log key)
-- Contract code is published on the output log
+- Every contract is bound to a hypercore (the index log)
+- Every contract has a public key (the index log key)
+- Contract code is published on the index log
 - If you know the public key of a contract you can access it
 - A contract "instance" is created locally when the contract is accessed
-- Each contract instance may have an input log
+- Each contract instance may have an oplog
 
 Contracts are instantiated on any device that's interested in accessing it. This means there's always a "local instance" of the contract running. Contracts export an API for external interaction.
 
 > ℹ️ It is possible to examine the datacores of contracts without instantiating the contract, but this is not the default behavior.
 
-In addition to the contract's output core, each instance may or may not have an input core. All state-mutations are appended as operations to the local instance's input core. A required function, `apply()`, is then called to handle each input cores' operations and update the output core's state. 
+In addition to the contract's index core, each instance may or may not have an oplog core. All state-mutations are appended as operations to the local instance's oplog core. A required function, `apply()`, is then called to handle each oplog cores' operations and update the index core's state. 
 
-The contract instance that owns the output core is known as the "executor." Contract instances that own input cores are known as "participants." 
+The contract instance that owns the index core is known as the "executor." Contract instances that own oplog cores are known as "participants." 
 
 ## Glossary
 
@@ -23,10 +23,10 @@ The contract instance that owns the output core is known as the "executor." Cont
 |Contract|A program executed using the ITO framework. This term may refer to only the code or to the code and all the state and participants.|
 |Contract code|The source code defining the contract.|
 |Log|An append-only listing of messages. Sometimes called a Hypercore or "core" due to the technology ITO is implemented upon.|
-|Input log / oplog|A log which produces operations to be executed by the contract.|
-|Output log / index|The log which represents the current state of the contract which are the results of processed operations.|
+|Oplog|A log which produces operations to be executed by the contract.|
+|Index log|The log which represents the current state of the contract which are the results of processed operations.|
 |Executor|The party responsible for executing the contract.|
-|Participant|Any party with an input log declared in the contract.|
+|Participant|Any party with an oplog declared in the contract.|
 |Monitor|Any party who chooses to validate the contract's execution.|
 |Operation|Any message published on an oplog. Will be processed by the executor.|
 |Transaction|A collection of operations and resulting changes to the index which result from a call to the contract.|
@@ -38,12 +38,12 @@ The contract instance that owns the output core is known as the "executor." Cont
 
 ## Index layout (output log)
 
-The output logs has a set of fixed entries:
+The output log has a set of fixed entries:
 
 |Key|Usage|
 |-|-|
 |`.sys/contract/source`|The source code of the contract|
-|`.sys/inputs/{pubkey-hex}`|Declarations of input logs|
+|`.sys/inputs/{pubkey-hex}`|Declarations of oplogs|
 |`.sys/acks/{pubkey-hex}/{seq}`|Acknowledgements of processed ops|
 
 Entries under `.sys/acks/` can not be modified by the contract.
@@ -52,7 +52,7 @@ Entries under `.sys/acks/` can not be modified by the contract.
 
 ## Encodings
 
-- Input log values: messagepack.
+- Oplog values: messagepack.
 - Output index keys: utf8 with a `\x00` separator.
 - Output index values: messagepack.
 
@@ -70,7 +70,7 @@ The executor host initializes a contract with the following steps:
 
 ### Operation processing flow (executor)
 
-The executor host watches all active input logs for new entries and enters the following flow as each entry is detected:
+The executor host watches all active oplogs for new entries and enters the following flow as each entry is detected:
 
 - Place the vm in "restricted mode."
 - If the contract exports a `process()` function
@@ -93,16 +93,16 @@ The executor host watches all active input logs for new entries and enters the f
     - Set `ack.error` to a string (the message of the error)
     - Empty the `tx` queue of actions
 - Place the vm in "unrestricted mode."
-- Prepend the `ack` entry to the `tx` with a numeric ID which is > all previous ack ids.
+- Prepend the `ack` entry to the `tx` with a path of `.sys/acks/{oplog-pubkey-hex}/{seq}`.
 - Atomically apply the queued actions in `tx` to the index.
 - Iterate the actions in `tx` using offset `i`:
   - If the `tx[i]` key is `.sys/contract/source`:
     - Replace the active VM with the value of `tx[i]`.
   - If the `tx[i]` key is prefixed by `.sys/input/`:
     - If the `tx[i]` action is `put`:
-      - Add the encoded oplog to the active input logs.
+      - Add the encoded oplog to the active oplogs.
     - If the `tx[i]` action is `delete`:
-      - Remove the encoded oplog from the active input logs.
+      - Remove the encoded oplog from the active oplogs.
 
 ### Transaction flow (participant)
 
@@ -144,10 +144,11 @@ The transaction flow is divided into "creation" and "receiving" as time may pass
 The monitor host verifies a contract using the following flow:
 
 **Verify Initialization Entries**
+
 - Verify that `idxLog[0]` is a valid Hyperbee header.
 - Read contract source from `idxLog[1]` and instantiate the VM with it.
 - Place the vm in "restricted mode."
-- Set `lastAckId` to `0`
+- Create a map `processedSeqs` to for each active oplog with each entry initialized at `-1`.
 - Set `idxSeq` to `2`
 - While `idxSeq < idxLog.length`:
   - If `idxLog[idxSeq]` key is `.sys/ack/0`, exit while loop.
@@ -159,26 +160,29 @@ The monitor host verifies a contract using the following flow:
 
 - While `idxSeq < idxLog.length`:
   - Set `ack` to `idxLog[idxSeq]`
-  - If `ack` key is not `.sys/ack/{id}`, fail verification.
-  - If `ack` type is not `put`, fail verification.
-  - If the `{id}` segment of the key is less-than-or-equal to `lastAckId`, fail verification.
+  - If `ack` key does not match `.sys/ack/{pubkey}/{seq}`, fail verification.
+  - If `ack` write-type is not `put`, fail verification.
+  - If the `{seq}` segment of the key does not equal `processedSeqs[pubkey] + 1`, fail verification.
   - Fetch the `op` from the oplog specified by the `ack` value.
-    - If the root hash of the oplog at `op` does not equal the hash in `ack`, fail verification.
-  - Set VM `index` instance to `checkout(idxSeq)`.
+  - Rewind VM `index` state to `idxSeq`.
   - Call `apply()` with the following arguments:
     - `tx` An object with `put(key, value)` and `del(key)` operations for queueing updates to the index.
     - `op` The operation.
     - `ack` The `ack` value.
-  - Set `newContractSource` to `null`
+  - Set `newContractSource` to `null`.
+  - Set `oplogChanges` to an empty array.
   - Iterate the actions in `tx` using offset `i`:
     - If the `tx[i]` type does not equal the `idxLog[idxSeq + i]` type, fail verification.
     - If the `tx[i]` key does not equal the `idxLog[idxSeq + i]` key, fail verification.
     - If the `tx[i]` value does not equal the `idxLog[idxSeq + i]` value, fail verification.
     - If the `tx[i]` key is `.sys/contract/source`, set `newContractSource` to the `tx[i]` value.
-  - Set `lastAckId` to the `{id}` segment of the `ack` key.
+    - If the `tx[i]` key matches `.sys/inputs/{pubkey}`, add the value to `oplogChanges`.
+  - Set `processedSeqs[pubkey]` to the `{seq}` segment of the `ack` key.
   - Increment `idxLogSeq` by `tx.length + 1`.
   - If `newContractSource` is not `null`:
     - Replace the active VM with `newContractSource`
+  - Iterate each entry in `oplogChanges`:
+    - Add or remove oplogs according to the encoded change.
 
 ### Transaction verification flow (monitor)
 
