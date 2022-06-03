@@ -143,7 +143,7 @@ We just violated the contract by setting the counter back to 1. This particular 
 
 ## License
 
-Vitra is copyright 2022 Blue Link Labs. We're currently deciding how to license Vitra and have not set a FOSS license yet, though we intend to (sorry!). We're currently considering a less liberal license such as AGPL.
+MIT licensed, Copyright 2022 Blue Link Labs.
 
 ## Future improvements
 

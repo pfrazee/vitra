@@ -1,6 +1,6 @@
 {
   "name": "vitra",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A framework for cooperatively-run databases using smart contracts.",
   "main": "dist/index.js",
   "type": "module",
@@ -25,7 +25,7 @@
     ]
   },
   "author": "Paul Frazee <pfrazee@gmail.com>",
-  "license": "",
+  "license": "MIT",
   "dependencies": {
     "@babel/parser": "^7.16.8",
     "@hyperswarm/dht": "^5.0.12",
