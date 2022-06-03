@@ -1,6 +1,6 @@
 {
   "name": "vitra",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "A framework for cooperatively-run databases using smart contracts.",
   "main": "dist/index.js",
   "type": "module",
